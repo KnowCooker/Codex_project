@@ -2,6 +2,8 @@
 
 原生微信小程序初版，按策划书中的“单通道、手机/耳机互斥、以 dBFS 为主”的范围实现。
 
+跨电脑继续开发时，请先阅读 [`DEVELOPMENT_HANDOFF.md`](./DEVELOPMENT_HANDOFF.md)。
+
 ## 启动
 
 使用微信开发者工具导入本文件夹。当前 `project.config.json` 已配置 iOS 测试 AppID `wx4e4e4dd771fc9421`；请勿将这个文件用于 Android 版上传。
