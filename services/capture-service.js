@@ -26,7 +26,9 @@ class CaptureService {
         if (keep) all.set(this.samples.subarray(this.samples.length - keep), 0)
         all.set(frame.subarray(Math.max(0, frame.length - (all.length - keep))), keep)
         this.samples = all
-        if (Date.now() - this.lastAnalysisAt < 125 || this.samples.length < this.fftSize) return
+        // 4 KB PCM frames at 48 kHz arrive about every 43 ms. Analyse each frame
+        // once the one-second FFT window is full for a practical 20-24 FPS UI.
+        if (Date.now() - this.lastAnalysisAt < 40 || this.samples.length < this.fftSize) return
         this.lastAnalysisAt = Date.now()
         const result = this.smoothResult(analyse(this.samples, this.analysisSampleRate, this.fftSize))
         if (result && this.state === STATES.ANALYSING) this.callbacks.data && this.callbacks.data(result)
@@ -42,7 +44,7 @@ class CaptureService {
       this.state = STATES.IDLE
       this.stopReason = null; this.pendingRecording = false
       if (restartAsRecording || restartAnalysis) {
-        this.start({ ...this.startOptions, recording: restartAsRecording })
+        this.start({ ...this.startOptions, recording: restartAsRecording, preserveAnalysisState: true })
           .catch(error => this.callbacks.error && this.callbacks.error(error.errMsg || error.message || '无法重启采集'))
         return
       }
@@ -71,13 +73,16 @@ class CaptureService {
     this.smoothedRange = result.spectrumRange
     return result
   }
-  async start({ mode, platform, earSide = 'auto', recording = false }) {
+  async start({ mode, platform, earSide = 'auto', recording = false, preserveAnalysisState = false }) {
     if (this.state !== STATES.IDLE) throw new Error('当前采集尚未结束')
-    this.state = STATES.REQUESTING; this.mode = mode; this.samples = new Float32Array(0)
+    this.state = STATES.REQUESTING; this.mode = mode
     this.startOptions = { mode, platform, earSide }; this.recordingEnabled = recording; this.lastAnalysisAt = 0
-    this.smoothedSpectrum = null; this.smoothedRange = null
-    this.highPass = new HighPassFilter(this.sampleRate, 7)
-    this.decimator = new Decimator(this.sampleRate, this.analysisSampleRate)
+    if (!preserveAnalysisState) {
+      this.samples = new Float32Array(0)
+      this.smoothedSpectrum = null; this.smoothedRange = null
+      this.highPass = new HighPassFilter(this.sampleRate, 7)
+      this.decimator = new Decimator(this.sampleRate, this.analysisSampleRate)
+    }
     await new Promise((resolve, reject) => wx.authorize({ scope: 'scope.record', success: resolve, fail: reject }))
     this.state = STATES.CHECKING
     this.recorder.start({

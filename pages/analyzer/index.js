@@ -10,7 +10,7 @@ Page({
     this.setData({ mode, earSide, source: query.source || requestedAudioSource(mode, profile.platform), profile, warning: mode === 'headset' ? '耳机输入为“未验证”。请在敲击测试后确认继续；断开耳机将安全停止。' : '' })
     capture = new CaptureService()
     capture.on({
-      data: metrics => { this.latestMetrics = metrics; this.setData({ metrics, metricView: this.present(metrics), hasData: true }); this.draw(metrics) },
+      data: metrics => { this.latestMetrics = metrics; this.setData({ metricView: this.present(metrics), hasData: true }); this.draw(metrics) },
       state: (state, options = {}) => {
         if (options.recording && !this.data.recording) this.recordingStartedAt = Date.now()
         if (!options.recording) this.recordingStartedAt = 0
@@ -42,7 +42,7 @@ Page({
   complete(file) {
     clearInterval(this.timer)
     if (!file.recorded) { this.setData({ state: 'idle', recording: false }); wx.showToast({ title: '分析已结束，未保存录音', icon: 'none' }); return }
-    const metrics = this.data.metrics || { rmsDb: -100, peakDb: -100, peakFrequency: 0, clipped: 0 }
+    const metrics = this.latestMetrics || { rmsDb: -100, peakDb: -100, peakFrequency: 0, clipped: 0 }
     const now = new Date(); const id = `${Date.now()}-${Math.floor(Math.random() * 10000)}`
     const record = { id, name: `测试 ${now.toLocaleString()}`, createdAt: now.toLocaleString(), mode: this.data.mode, earSide: this.data.earSide, earVerified: this.data.mode === 'headset' ? false : true, source: this.data.source, platform: this.data.profile.platform, model: this.data.profile.model, sampleRate: 2000, originalSampleRate: 48000, fftSize: 2048, duration: file.duration, filePath: file.tempFilePath, fileSize: file.fileSize, interruptedReason: capture.stopReason || 'user', summary: { rmsDb: Number(metrics.rmsDb.toFixed(1)), peakDb: Number(metrics.peakDb.toFixed(1)), peakFrequency: Math.round(metrics.peakFrequency), clipped: metrics.clipped, spectrum: metrics.bins || [] } }
     repo.save(record)
@@ -51,35 +51,66 @@ Page({
   present(metrics) { return { rms: metrics.rmsDb.toFixed(1), peak: metrics.peakDb.toFixed(1), frequency: metrics.peakFrequency.toFixed(0), clipped: metrics.clipped } },
   setSpectrumAxis(event) {
     const spectrumAxis = event.currentTarget.dataset.axis
-    this.setData({ spectrumAxis, spectrumLabel: spectrumAxis === 'log' ? '对数频率轴' : '线性频率轴' })
-    if (this.latestMetrics) this.draw(this.latestMetrics)
+    this.setData({ spectrumAxis, spectrumLabel: spectrumAxis === 'log' ? '对数频率轴' : '线性频率轴' }, () => {
+      if (this.latestMetrics) this.draw(this.latestMetrics)
+    })
   },
   setYScaleMode(event) {
-    this.setData({ yScaleMode: event.currentTarget.dataset.mode })
-    if (this.latestMetrics) this.draw(this.latestMetrics)
+    this.setData({ yScaleMode: event.currentTarget.dataset.mode }, () => {
+      if (this.latestMetrics) this.draw(this.latestMetrics)
+    })
   },
   setManualMin(event) { this.setData({ manualMin: event.detail.value }) },
   setManualMax(event) { this.setData({ manualMax: event.detail.value }) },
   applyManualRange() {
     const min = Number(this.data.manualMin); const max = Number(this.data.manualMax)
     if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) return wx.showToast({ title: '请输入有效范围：最小值小于最大值', icon: 'none' })
-    this.setData({ yScaleMode: 'manual', manualRange: { min, max } })
-    if (this.latestMetrics) this.draw(this.latestMetrics)
+    this.setData({ yScaleMode: 'manual', manualRange: { min, max } }, () => {
+      if (this.latestMetrics) this.draw(this.latestMetrics)
+    })
   },
   draw(metrics) { this.drawSpectrum(metrics) },
   drawSpectrum(metrics) {
     const ctx = wx.createCanvasContext('spectrum', this); const width = 694, height = 420
     const values = metrics.spectrum || []; const autoRange = metrics.spectrumRange || { min: -100, max: 0 }
     const range = this.data.yScaleMode === 'manual' ? this.data.manualRange : autoRange; const axis = this.data.spectrumAxis
-    const projectX = frequency => axis === 'log' ? (Math.log(frequency / 20) / Math.log(500 / 20)) * width : ((frequency - 20) / 480) * width
-    ctx.setFillStyle('#f9fcff'); ctx.fillRect(0, 0, width, height); ctx.setStrokeStyle('#dbe6f3'); ctx.setLineWidth(1)
+    const plot = { left: 82, right: width - 18, top: 24, bottom: height - 52 }
+    const plotWidth = plot.right - plot.left; const plotHeight = plot.bottom - plot.top
+    const projectX = frequency => plot.left + (axis === 'log' ? Math.log(frequency / 20) / Math.log(500 / 20) : (frequency - 20) / 480) * plotWidth
+    const projectY = db => {
+      const clamped = Math.max(range.min, Math.min(range.max, db))
+      return Math.max(plot.top + 1, Math.min(plot.bottom - 1, plot.top + (range.max - clamped) / (range.max - range.min) * plotHeight))
+    }
+    const formatTick = value => {
+      const rounded = Math.abs(range.max - range.min) < 10 ? value.toFixed(1) : value.toFixed(0)
+      return rounded === '-0' || rounded === '-0.0' ? rounded.slice(1) : rounded
+    }
+    ctx.setFillStyle('#f9fcff'); ctx.fillRect(0, 0, width, height)
+    ctx.setStrokeStyle('#dbe6f3'); ctx.setLineWidth(1)
     ctx.setLineDash([6, 5])
-    for (let i = 0; i <= 4; i++) { const y = i / 4 * height; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke() }
-    const ticks = axis === 'log' ? [20, 50, 100, 200, 500] : [20, 140, 260, 380, 500]
-    ctx.setFillStyle('#718096'); ctx.setFontSize(18); ctx.fillText('估计声压级 / dB', 8, 20); ctx.fillText(`${range.max}`, 8, 40); ctx.fillText(`${range.min}`, 8, height - 24)
-    ticks.forEach(freq => { const x = projectX(freq); ctx.setStrokeStyle('#dbe6f3'); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); ctx.setFillStyle('#718096'); ctx.fillText(String(freq), Math.min(width - 30, Math.max(3, x - 10)), height - 8) })
-    ctx.setLineDash([]); ctx.fillText('频率 / Hz', width - 68, height - 8)
-    if (values.length) { ctx.setStrokeStyle('#8b9cff'); ctx.setLineWidth(2); ctx.beginPath(); values.forEach((point, i) => { const x = projectX(point.frequency); const y = height - (Math.max(range.min, Math.min(range.max, point.db)) - range.min) / (range.max - range.min) * height; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y) }); ctx.stroke() }
+    ctx.setFillStyle('#60718d'); ctx.setFontSize(17)
+    for (let i = 0; i <= 5; i++) {
+      const y = plot.top + i / 5 * plotHeight; const value = range.max - i / 5 * (range.max - range.min)
+      ctx.beginPath(); ctx.moveTo(plot.left, y); ctx.lineTo(plot.right, y); ctx.stroke()
+      ctx.fillText(formatTick(value), 38, y + 6)
+    }
+    const ticks = axis === 'log' ? [20, 30, 50, 70, 100, 200, 300, 500] : [20, 100, 200, 300, 400, 500]
+    ticks.forEach(freq => {
+      const x = projectX(freq); ctx.beginPath(); ctx.moveTo(x, plot.top); ctx.lineTo(x, plot.bottom); ctx.stroke()
+      const offset = String(freq).length * 4.5; ctx.fillText(String(freq), Math.max(plot.left - 2, Math.min(plot.right - offset * 2, x - offset)), plot.bottom + 23)
+    })
+    ctx.setLineDash([]); ctx.setStrokeStyle('#718096'); ctx.setLineWidth(1.5)
+    ctx.beginPath(); ctx.moveTo(plot.left, plot.top); ctx.lineTo(plot.left, plot.bottom); ctx.lineTo(plot.right, plot.bottom); ctx.stroke()
+    for (let i = 0; i <= 5; i++) { const y = plot.top + i / 5 * plotHeight; ctx.beginPath(); ctx.moveTo(plot.left - 5, y); ctx.lineTo(plot.left, y); ctx.stroke() }
+    ticks.forEach(freq => { const x = projectX(freq); ctx.beginPath(); ctx.moveTo(x, plot.bottom); ctx.lineTo(x, plot.bottom + 5); ctx.stroke() })
+    ctx.setFontSize(18); ctx.fillText('频率 / Hz', (plot.left + plot.right) / 2 - 32, height - 8)
+    ctx.save(); ctx.translate(15, (plot.top + plot.bottom) / 2 + 58); ctx.rotate(-Math.PI / 2); ctx.fillText('估计声压级 / dB', 0, 0); ctx.restore()
+    if (values.length) {
+      ctx.save(); ctx.beginPath(); ctx.rect(plot.left, plot.top, plotWidth, plotHeight); ctx.clip()
+      ctx.setStrokeStyle('#7279dc'); ctx.setLineWidth(2.5); ctx.beginPath()
+      values.forEach((point, i) => { const x = projectX(point.frequency); const y = projectY(point.db); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y) })
+      ctx.stroke(); ctx.restore()
+    }
     ctx.draw()
   }
 })
