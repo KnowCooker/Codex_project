@@ -115,4 +115,4 @@ function downsample(array, count) {
   for (let i = 0; i < array.length; i += step) output.push(Number(array[i].toFixed(2)))
   return output
 }
-module.exports = { parsePcm16, analyse, HighPassFilter, Decimator, DEFAULT_MIN_FREQUENCY, DEFAULT_MAX_FREQUENCY }
+module.exports = { parsePcm16, analyse, autoDbRange, HighPassFilter, Decimator, DEFAULT_MIN_FREQUENCY, DEFAULT_MAX_FREQUENCY }

@@ -1,4 +1,4 @@
-const { parsePcm16, analyse, HighPassFilter, Decimator } = require('./dsp')
+const { parsePcm16, analyse, autoDbRange, HighPassFilter, Decimator } = require('./dsp')
 const { requestedAudioSource } = require('./compatibility')
 
 const STATES = { IDLE: 'idle', REQUESTING: 'requesting', CHECKING: 'checking', ANALYSING: 'analysing', PAUSED: 'paused', STOPPING: 'stopping' }
@@ -28,7 +28,7 @@ class CaptureService {
         this.samples = all
         if (Date.now() - this.lastAnalysisAt < 125 || this.samples.length < this.fftSize) return
         this.lastAnalysisAt = Date.now()
-        const result = analyse(this.samples, this.analysisSampleRate, this.fftSize)
+        const result = this.smoothResult(analyse(this.samples, this.analysisSampleRate, this.fftSize))
         if (result && this.state === STATES.ANALYSING) this.callbacks.data && this.callbacks.data(result)
       } catch (error) { this.callbacks.error && this.callbacks.error('PCM 帧无法解析：' + error.message) }
     })
@@ -50,10 +50,32 @@ class CaptureService {
     })
   }
   on(callbacks) { this.callbacks = callbacks || {} }
+  smoothResult(result) {
+    if (!result) return result
+    const alpha = .22
+    if (this.smoothedSpectrum && this.smoothedSpectrum.length === result.spectrum.length) {
+      result.spectrum = result.spectrum.map((point, index) => ({
+        frequency: point.frequency,
+        db: Number((this.smoothedSpectrum[index] + alpha * (point.db - this.smoothedSpectrum[index])).toFixed(2))
+      }))
+    }
+    this.smoothedSpectrum = result.spectrum.map(point => point.db)
+    result.bins = this.smoothedSpectrum.slice()
+    const target = autoDbRange(this.smoothedSpectrum)
+    if (this.smoothedRange) {
+      result.spectrumRange = {
+        min: Number((this.smoothedRange.min + .2 * (target.min - this.smoothedRange.min)).toFixed(1)),
+        max: Number((this.smoothedRange.max + .2 * (target.max - this.smoothedRange.max)).toFixed(1))
+      }
+    } else result.spectrumRange = target
+    this.smoothedRange = result.spectrumRange
+    return result
+  }
   async start({ mode, platform, earSide = 'auto', recording = false }) {
     if (this.state !== STATES.IDLE) throw new Error('当前采集尚未结束')
     this.state = STATES.REQUESTING; this.mode = mode; this.samples = new Float32Array(0)
     this.startOptions = { mode, platform, earSide }; this.recordingEnabled = recording; this.lastAnalysisAt = 0
+    this.smoothedSpectrum = null; this.smoothedRange = null
     this.highPass = new HighPassFilter(this.sampleRate, 7)
     this.decimator = new Decimator(this.sampleRate, this.analysisSampleRate)
     await new Promise((resolve, reject) => wx.authorize({ scope: 'scope.record', success: resolve, fail: reject }))

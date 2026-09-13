@@ -4,7 +4,7 @@ const repo = require('../../services/recording-repository')
 
 let capture
 Page({
-  data: { mode: 'phone', earSide: 'auto', source: 'mic', state: 'idle', elapsed: '00:00', recordingElapsed: '00:00', recording: false, metrics: null, error: '', warning: '', hasData: false, spectrumAxis: 'log', spectrumLabel: '对数频率轴' },
+  data: { mode: 'phone', earSide: 'auto', source: 'mic', state: 'idle', elapsed: '00:00', recordingElapsed: '00:00', recording: false, metrics: null, error: '', warning: '', hasData: false, spectrumAxis: 'log', spectrumLabel: '对数频率轴', yScaleMode: 'auto', manualMin: '-80', manualMax: '0', manualRange: { min: -80, max: 0 } },
   onLoad(query) {
     const profile = getSystemProfile(); const mode = query.mode || 'phone'; const earSide = query.earSide || 'auto'
     this.setData({ mode, earSide, source: query.source || requestedAudioSource(mode, profile.platform), profile, warning: mode === 'headset' ? '耳机输入为“未验证”。请在敲击测试后确认继续；断开耳机将安全停止。' : '' })
@@ -54,10 +54,23 @@ Page({
     this.setData({ spectrumAxis, spectrumLabel: spectrumAxis === 'log' ? '对数频率轴' : '线性频率轴' })
     if (this.latestMetrics) this.draw(this.latestMetrics)
   },
+  setYScaleMode(event) {
+    this.setData({ yScaleMode: event.currentTarget.dataset.mode })
+    if (this.latestMetrics) this.draw(this.latestMetrics)
+  },
+  setManualMin(event) { this.setData({ manualMin: event.detail.value }) },
+  setManualMax(event) { this.setData({ manualMax: event.detail.value }) },
+  applyManualRange() {
+    const min = Number(this.data.manualMin); const max = Number(this.data.manualMax)
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) return wx.showToast({ title: '请输入有效范围：最小值小于最大值', icon: 'none' })
+    this.setData({ yScaleMode: 'manual', manualRange: { min, max } })
+    if (this.latestMetrics) this.draw(this.latestMetrics)
+  },
   draw(metrics) { this.drawSpectrum(metrics) },
   drawSpectrum(metrics) {
-    const ctx = wx.createCanvasContext('spectrum', this); const width = 694, height = 260
-    const values = metrics.spectrum || []; const range = metrics.spectrumRange || { min: -100, max: 0 }; const axis = this.data.spectrumAxis
+    const ctx = wx.createCanvasContext('spectrum', this); const width = 694, height = 420
+    const values = metrics.spectrum || []; const autoRange = metrics.spectrumRange || { min: -100, max: 0 }
+    const range = this.data.yScaleMode === 'manual' ? this.data.manualRange : autoRange; const axis = this.data.spectrumAxis
     const projectX = frequency => axis === 'log' ? (Math.log(frequency / 20) / Math.log(500 / 20)) * width : ((frequency - 20) / 480) * width
     ctx.setFillStyle('#f9fcff'); ctx.fillRect(0, 0, width, height); ctx.setStrokeStyle('#dbe6f3'); ctx.setLineWidth(1)
     ctx.setLineDash([6, 5])
