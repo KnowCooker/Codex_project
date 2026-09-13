@@ -7,7 +7,7 @@
   </view>
   <view class="card"><view class="section-title">选择采集模式</view>
     <view class="mode-row"><view class="mode {{mode === 'phone' ? 'selected' : ''}}" data-mode="phone" bindtap="chooseMode"><text>手机麦克风</text><text class="muted">内置单通道</text></view><view class="mode {{mode === 'headset' ? 'selected' : ''}}" data-mode="headset" bindtap="chooseMode"><text>耳机麦克风</text><text class="muted">需用户确认路由</text></view></view>
-    <view wx:if="{{mode === 'headset'}}" class="notice">耳机断开后测量会停止，不会自动切回手机。小程序无法直接设置耳机左右侧麦克风。</view>
+    <view wx:if="{{mode === 'headset'}}" class="notice">耳机模式会锁定专用耳机输入；耳机断开或音频路由中断后立即停止，不会自动切回手机。AirPods 的语音降噪可能显著压低环境声。</view>
     <view wx:if="{{mode === 'headset'}}" class="side-row"><button data-side="auto" bindtap="chooseEarSide" class="small {{earSide === 'auto' ? 'active' : ''}}">自动</button><button data-side="left" bindtap="chooseEarSide" class="small {{earSide === 'left' ? 'active' : ''}}">用户设定左耳</button><button data-side="right" bindtap="chooseEarSide" class="small {{earSide === 'right' ? 'active' : ''}}">用户设定右耳</button></view>
   </view>
   <button class="primary" disabled="{{!buildAllowed}}" bindtap="start">开始分析</button>

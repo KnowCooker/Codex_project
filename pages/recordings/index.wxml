@@ -1,0 +1,12 @@
+<view class="page">
+  <view class="recording-header">
+    <view class="title">录音文件</view>
+    <view class="subtitle">录音保存在本机小程序目录；点击文件可查看并回放 WAV。</view>
+  </view>
+  <view wx:if="{{!recordings.length}}" class="empty">还没有录音文件<br/>请在实时分析页点击“开始录音”</view>
+  <view wx:for="{{recordings}}" wx:key="id" class="card recording-file" data-id="{{item.id}}" bindtap="open">
+    <view class="row"><text class="file-name">{{item.name}}</text><text class="format {{item.formatLabel === 'WAV' ? 'ready' : 'legacy'}}">{{item.formatLabel}}</text></view>
+    <view class="file-meta">{{item.createdAt}} · {{item.mode === 'phone' ? '手机麦克风' : '耳机麦克风'}}</view>
+    <view class="row file-stats"><text>{{item.durationLabel}}</text><text>{{item.fileSizeLabel}}</text></view>
+  </view>
+</view>

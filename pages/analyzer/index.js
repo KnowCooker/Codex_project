@@ -2,6 +2,7 @@ const { CaptureService, STATES } = require('../../services/capture-service')
 const { getSystemProfile, requestedAudioSource } = require('../../services/compatibility')
 const repo = require('../../services/recording-repository')
 const { getWeightingOffsets, summarizeSpectrum, spectrumRange, valueAt } = require('../../services/weighting')
+const { averageSpectrumFromWav } = require('../../services/file-spectrum')
 
 let capture
 const LOG_TICKS = [20, 30, 50, 70, 100, 200, 300, 500]
@@ -11,12 +12,23 @@ const SPECTRUM_BANDS = [
   { min: 70, max: 150, color: 'rgba(65, 184, 139, .12)' },
   { min: 160, max: 240, color: 'rgba(241, 164, 74, .13)' }
 ]
+function recordingChoices() {
+  return repo.list().filter(item => item.filePath && (item.playbackReady || item.fileFormat === 'wav' || /\.wav$/i.test(item.filePath))).map(item => ({
+    id: item.id,
+    name: item.name,
+    createdAt: item.createdAt,
+    mode: item.mode,
+    filePath: item.filePath,
+    durationLabel: `${(Math.max(0, item.duration || 0) / 1000).toFixed(1)} 秒`,
+    fileSizeLabel: item.fileSize ? `${(item.fileSize / 1024 / 1024).toFixed(2)} MB` : '大小未知'
+  }))
+}
 Page({
-  data: { mode: 'phone', earSide: 'auto', source: 'mic', state: 'idle', elapsed: '00:00', recordingElapsed: '00:00', recording: false, metrics: null, error: '', warning: '', hasData: false, hasReference: false, referenceTime: '', referenceMetricView: null, weighting: 'linear', weightingLabel: '线性计权', weightingUnit: 'dB', spectrumAxis: 'log', spectrumLabel: '对数频率轴', yScaleMode: 'auto', manualMin: '-80', manualMax: '0', manualRange: { min: -80, max: 0 }, canvasWidth: 320, canvasHeight: 300, canvasCssHeight: 300 },
+  data: { mode: 'phone', earSide: 'auto', source: 'mic', state: 'idle', elapsed: '00:00', recordingElapsed: '00:00.0', recordingProgress: 0, recording: false, recordingFinalizing: false, metrics: null, error: '', warning: '', hasData: false, hasReference: false, referenceTime: '', referenceMetricView: null, weighting: 'linear', weightingLabel: '线性计权', weightingUnit: 'dB', spectrumAxis: 'log', spectrumLabel: '对数频率轴', yScaleMode: 'auto', manualMin: '-80', manualMax: '0', manualRange: { min: -80, max: 0 }, canvasWidth: 320, canvasHeight: 300, canvasCssHeight: 300, recordings: [], referencePickerOpen: false, referenceLoading: false, referenceProgress: 0, referenceImportError: '' },
   onLoad(query) {
     const profile = getSystemProfile(); const mode = query.mode || 'phone'; const earSide = query.earSide || 'auto'
-    this.setData({ mode, earSide, source: query.source || requestedAudioSource(mode, profile.platform), profile, warning: mode === 'headset' ? '耳机输入为“未验证”。请在敲击测试后确认继续；断开耳机将安全停止。' : '' })
-    capture = new CaptureService()
+    this.setData({ mode, earSide, source: query.source || requestedAudioSource(mode, profile.platform), profile, recordings: recordingChoices(), warning: mode === 'headset' ? '耳机输入为“未验证”。AirPods 的语音降噪会压低环境声；断开或路由中断时测试将立即停止。' : '' })
+    if (!capture) capture = new CaptureService()
     capture.on({
       data: metrics => {
         this.latestMetrics = metrics
@@ -29,11 +41,13 @@ Page({
       },
       state: (state, options = {}) => {
         if (state === STATES.PAUSED) this.pendingDrawMetrics = null
-        if (options.recording && !this.data.recording) this.recordingStartedAt = Date.now()
-        if (!options.recording) this.recordingStartedAt = 0
-        this.setData({ state, recording: Boolean(options.recording) })
+        if (options.recording && !this.data.recording) { this.recordingStartedAt = Date.now(); this.recordingStoppedAt = 0 }
+        if (options.finalizing) this.recordingStoppedAt = Date.now()
+        if (!options.recording) { this.recordingStartedAt = 0; this.recordingStoppedAt = 0 }
+        this.setData({ state, recording: Boolean(options.recording), recordingFinalizing: Boolean(options.finalizing) }, () => this.tick())
       },
-      error: error => this.setData({ error, state: 'idle', recording: false }), stop: file => this.complete(file)
+      routeLost: message => this.setData({ error: message }),
+      error: error => this.setData({ error, state: 'idle', recording: false, recordingFinalizing: false }), stop: file => this.complete(file)
     })
     this.start()
   },
@@ -45,14 +59,17 @@ Page({
     try {
       this.setData({ error: '', state: 'requesting' })
       await capture.start({ mode: this.data.mode, platform: this.data.profile.platform, earSide: this.data.earSide, recording: false })
-      this.startedAt = Date.now(); this.timer = setInterval(() => this.tick(), 1000)
+      this.startedAt = Date.now(); this.timer = setInterval(() => this.tick(), 200)
     } catch (error) { this.setData({ error: '无法开始录音：' + (error.errMsg || error.message || '请检查麦克风权限'), state: 'idle' }) }
   },
   tick() {
     const seconds = Math.floor((Date.now() - this.startedAt) / 1000)
     const format = value => `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`
-    const recordingSeconds = this.data.recording && this.recordingStartedAt ? Math.min(30, Math.floor((Date.now() - this.recordingStartedAt) / 1000)) : 0
-    this.setData({ elapsed: format(seconds), recordingElapsed: format(recordingSeconds) })
+    const recordingEndAt = this.data.recordingFinalizing && this.recordingStoppedAt ? this.recordingStoppedAt : Date.now()
+    const recordingMs = this.data.recording && this.recordingStartedAt ? Math.min(30000, recordingEndAt - this.recordingStartedAt) : 0
+    const recordingSeconds = Math.floor(recordingMs / 1000)
+    const recordingElapsed = `${format(recordingSeconds)}.${Math.floor(recordingMs % 1000 / 100)}`
+    this.setData({ elapsed: format(seconds), recordingElapsed, recordingProgress: Number((recordingMs / 300).toFixed(1)) })
   },
   togglePause() {
     if (this.data.state === STATES.ANALYSING) { this.pendingDrawMetrics = null; capture.pause() }
@@ -63,11 +80,15 @@ Page({
   stopAnalysis() { clearInterval(this.timer); capture.stop('user') },
   complete(file) {
     clearInterval(this.timer)
-    if (!file.recorded) { this.setData({ state: 'idle', recording: false }); wx.showToast({ title: '分析已结束，未保存录音', icon: 'none' }); return }
+    if (!file.recorded) {
+      this.setData({ state: 'idle', recording: false, recordingFinalizing: false })
+      wx.showToast({ title: file.stopReason === 'headset-route-lost' ? '耳机已断开，分析已停止' : '分析已结束，未保存录音', icon: 'none' })
+      return
+    }
     const metrics = this.latestMetrics || { rmsDb: -100, peakDb: -100, peakFrequency: 0, clipped: 0 }
     const weightedSummary = metrics.spectrumDb ? summarizeSpectrum(metrics.spectrumDb, metrics.spectrumStartHz, metrics.binSpacingHz, metrics.rmsDb, this.data.weighting) : { total: metrics.rmsDb, low: -100, mid: -100, high: -100 }
     const now = new Date(); const id = `${Date.now()}-${Math.floor(Math.random() * 10000)}`
-    const record = { id, name: `测试 ${now.toLocaleString()}`, createdAt: now.toLocaleString(), mode: this.data.mode, earSide: this.data.earSide, earVerified: this.data.mode === 'headset' ? false : true, source: this.data.source, platform: this.data.profile.platform, model: this.data.profile.model, sampleRate: 2000, originalSampleRate: 48000, fftSize: 2048, duration: file.duration, filePath: file.tempFilePath, fileSize: file.fileSize, interruptedReason: capture.stopReason || 'user', weighting: this.data.weighting, weightingUnit: this.data.weightingUnit, summary: { rmsDb: Number(metrics.rmsDb.toFixed(1)), peakDb: Number(metrics.peakDb.toFixed(1)), peakFrequency: Math.round(metrics.peakFrequency), clipped: metrics.clipped, totalLevel: Number(weightedSummary.total.toFixed(1)), lowPeak: Number(weightedSummary.low.toFixed(1)), midPeak: Number(weightedSummary.mid.toFixed(1)), highPeak: Number(weightedSummary.high.toFixed(1)), spectrum: Array.from(metrics.spectrumDb || []) } }
+    const record = { id, name: `测试 ${now.toLocaleString()}`, createdAt: now.toLocaleString(), mode: this.data.mode, earSide: this.data.earSide, earVerified: this.data.mode === 'headset' ? false : true, source: this.data.source, platform: this.data.profile.platform, model: this.data.profile.model, sampleRate: 2000, originalSampleRate: 48000, fftSize: 2048, duration: file.duration, filePath: file.tempFilePath, fileSize: file.fileSize, fileFormat: file.fileFormat, playbackReady: file.playbackReady, conversionError: file.conversionError, interruptedReason: file.stopReason || 'user', weighting: this.data.weighting, weightingUnit: this.data.weightingUnit, summary: { rmsDb: Number(metrics.rmsDb.toFixed(1)), peakDb: Number(metrics.peakDb.toFixed(1)), peakFrequency: Math.round(metrics.peakFrequency), clipped: metrics.clipped, totalLevel: Number(weightedSummary.total.toFixed(1)), lowPeak: Number(weightedSummary.low.toFixed(1)), midPeak: Number(weightedSummary.mid.toFixed(1)), highPeak: Number(weightedSummary.high.toFixed(1)), spectrum: Array.from(metrics.spectrumDb || []) } }
     repo.save(record)
     wx.redirectTo({ url: `/pages/record-detail/index?id=${id}` })
   },
@@ -128,6 +149,37 @@ Page({
     this.setData({ hasReference: false, referenceTime: '', referenceMetricView: null }, () => {
       if (this.latestMetrics) this.draw(this.latestMetrics)
     })
+  },
+  openReferencePicker() {
+    if (this.data.recording) return wx.showToast({ title: '请先结束录音', icon: 'none' })
+    const recordings = recordingChoices()
+    if (!recordings.length) return wx.showToast({ title: '暂无可用的 WAV 录音', icon: 'none' })
+    this.setData({ recordings, referencePickerOpen: true, referenceImportError: '', referenceProgress: 0 })
+  },
+  closeReferencePicker() {
+    if (!this.data.referenceLoading) this.setData({ referencePickerOpen: false, referenceImportError: '' }, () => {
+      if (this.latestMetrics) wx.nextTick(() => this.draw(this.latestMetrics))
+    })
+  },
+  keepReferencePickerOpen() {},
+  async selectReferenceFile(event) {
+    if (this.data.referenceLoading) return
+    const record = this.data.recordings.find(item => item.id === event.currentTarget.dataset.id)
+    if (!record) return
+    const resumeAfterImport = this.data.state === STATES.ANALYSING
+    if (resumeAfterImport) capture.pause()
+    this.setData({ referenceLoading: true, referenceProgress: 0, referenceImportError: '' })
+    try {
+      const average = await averageSpectrumFromWav(record.filePath, { onProgress: referenceProgress => this.setData({ referenceProgress }) })
+      this.referenceSpectrum = { values: average.values, startHz: average.spectrumStartHz, binSpacingHz: average.binSpacingHz, rmsDb: average.rmsDb }
+      const referenceMetricView = this.presentSpectrum(average.values, average.spectrumStartHz, average.binSpacingHz, average.rmsDb)
+      this.setData({ hasReference: true, referenceTime: `文件：${record.name}`, referenceMetricView, referencePickerOpen: false, referenceLoading: false, referenceProgress: 100 }, () => {
+        if (this.latestMetrics) wx.nextTick(() => this.draw(this.latestMetrics))
+      })
+    } catch (error) {
+      this.setData({ referenceLoading: false, referenceImportError: error.errMsg || error.message || '无法计算录音平均频谱' })
+    }
+    if (resumeAfterImport && this.data.state === STATES.PAUSED) capture.resume()
   },
   measureChart() {
     wx.createSelectorQuery().in(this).select('#spectrumCanvas').boundingClientRect(rect => {
@@ -192,7 +244,8 @@ Page({
       const rounded = Math.abs(range.max - range.min) < 10 ? value.toFixed(1) : value.toFixed(0)
       return rounded === '-0' || rounded === '-0.0' ? rounded.slice(1) : rounded
     }
-    ctx.setFillStyle('#f9fcff'); ctx.fillRect(0, 0, width, height)
+    ctx.setFillStyle('#edf3fa'); ctx.fillRect(0, 0, width, height)
+    ctx.setFillStyle('#f8fbff'); ctx.fillRect(plot.left, plot.top, plotWidth, plotHeight)
     for (let index = 0; index < SPECTRUM_BANDS.length; index++) {
       const band = SPECTRUM_BANDS[index]
       const left = projectX(band.min); const right = projectX(band.max)
@@ -214,7 +267,7 @@ Page({
       ctx.fillText(label, Math.max(plot.left - 2, Math.min(plot.right - labelWidth, x - labelWidth / 2)), plot.bottom + fontSize * 1.55)
     }
     ctx.setLineDash([]); ctx.setStrokeStyle('#718096'); ctx.setLineWidth(1.5)
-    ctx.beginPath(); ctx.moveTo(plot.left, plot.top); ctx.lineTo(plot.left, plot.bottom); ctx.lineTo(plot.right, plot.bottom); ctx.stroke()
+    ctx.strokeRect(plot.left, plot.top, plotWidth, plotHeight)
     for (let i = 0; i <= 5; i++) { const y = plot.top + i / 5 * plotHeight; ctx.beginPath(); ctx.moveTo(plot.left - 5, y); ctx.lineTo(plot.left, y); ctx.stroke() }
     for (let index = 0; index < ticks.length; index++) { const x = projectX(ticks[index]); ctx.beginPath(); ctx.moveTo(x, plot.bottom); ctx.lineTo(x, plot.bottom + 5); ctx.stroke() }
     ctx.setFontSize(fontSize); ctx.fillText('频率 / Hz', (plot.left + plot.right) / 2 - fontSize * 2.7, height - 5)

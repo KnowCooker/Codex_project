@@ -3,6 +3,7 @@
     "pages/home/index",
     "pages/analyzer/index",
     "pages/history/index",
+    "pages/recordings/index",
     "pages/record-detail/index",
     "pages/compare/index"
   ],
@@ -20,7 +21,8 @@
     "borderStyle": "white",
     "list": [
       { "pagePath": "pages/home/index", "text": "首页" },
-      { "pagePath": "pages/history/index", "text": "记录" }
+      { "pagePath": "pages/history/index", "text": "记录" },
+      { "pagePath": "pages/recordings/index", "text": "录音文件" }
     ]
   }
 }

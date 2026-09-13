@@ -16,13 +16,13 @@ function getSystemProfile() {
 }
 
 function iosBuildGate(profile) {
-  if (profile.platform !== 'iOS') return { allowed: false, message: '这是 iOS 测试版，请使用 iPhone 打开；Android 版将使用独立 AppID 发布。' }
-  return { allowed: true, message: '' }
+  if (profile.platform !== 'iOS') return { allowed: true, message: 'Android 使用标准麦克风兼容模式，当前尚未完成全部机型验证；结果仅用于相对观察。' }
+  return { allowed: true, message: 'iOS 为首轮验证平台；不同设备的麦克风响应可能存在差异。' }
 }
 
 function requestedAudioSource(mode, platform) {
   if (mode === 'phone') return platform === 'iOS' ? 'buildInMic' : 'mic'
-  return 'auto'
+  return platform === 'iOS' ? 'headsetMic' : 'mic'
 }
 
 module.exports = { getSystemProfile, requestedAudioSource, iosBuildGate }
