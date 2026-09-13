@@ -1,5 +1,78 @@
-<view class="page"><view class="top"><view><view class="title">{{mode === 'phone' ? '手机麦克风' : '耳机麦克风'}}</view><view class="subtitle">{{source}} · 分析 {{elapsed}} · {{earSide === 'auto' ? '自动耳侧' : '用户声明' + (earSide === 'left' ? '左耳' : '右耳')}}</view></view><text class="tag {{recording ? 'warn' : (state === 'analysing' ? 'ok' : 'warn')}}">{{recording ? '录音 ' + recordingElapsed + '/00:30' : (state === 'analysing' ? '分析中' : (state === 'paused' ? '已暂停' : '准备中'))}}</text></view>
-<view wx:if="{{warning}}" class="notice">{{warning}}</view><view wx:if="{{error}}" class="notice error">{{error}}</view>
-<view class="chart-card"><view class="spectrum-heading"><view><view class="chart-label">频谱 · 20–500 Hz · 快速响应</view><view class="chart-note">0.98 Hz/bin · 有效分辨率约 1.95 Hz · 512 ms 数据窗；估计声压级为未校准相对 dB。</view></view><view class="axis-switch"><button data-axis="log" bindtap="setSpectrumAxis" class="axis-button {{spectrumAxis === 'log' ? 'active' : ''}}">对数</button><button data-axis="linear" bindtap="setSpectrumAxis" class="axis-button {{spectrumAxis === 'linear' ? 'active' : ''}}">线性</button></view></view><canvas id="spectrumCanvas" canvas-id="spectrum" class="chart spectrum-chart" width="{{canvasWidth}}" height="{{canvasHeight}}" style="height: {{canvasCssHeight}}px;"></canvas><view class="spectrum-legend"><view><text class="line-swatch live-line"></text>实时频谱</view><view wx:if="{{hasReference}}"><text class="line-swatch reference-line"></text>参考 {{referenceTime}}</view><view><text class="band-swatch band-low"></text>20–60 Hz</view><view><text class="band-swatch band-mid"></text>70–150 Hz</view><view><text class="band-swatch band-high"></text>160–240 Hz</view></view><view class="axis-caption"><text>纵轴：估计声压级 / dB</text><text>横轴：频率 / Hz</text></view><view class="scale-controls"><button data-mode="auto" bindtap="setYScaleMode" class="scale-button {{yScaleMode === 'auto' ? 'active' : ''}}">自动纵轴</button><button data-mode="manual" bindtap="setYScaleMode" class="scale-button {{yScaleMode === 'manual' ? 'active' : ''}}">手动纵轴</button><button class="reference-button" disabled="{{!hasData}}" bindtap="setReference">{{hasReference ? '更新参考' : '设为参考'}}</button><button wx:if="{{hasReference}}" class="clear-reference" bindtap="clearReference">清除参考</button><view wx:if="{{yScaleMode === 'manual'}}" class="range-inputs"><input type="text" value="{{manualMin}}" bindinput="setManualMin" placeholder="最小 dB"/><text>至</text><input type="text" value="{{manualMax}}" bindinput="setManualMax" placeholder="最大 dB"/><button bindtap="applyManualRange">应用</button></view></view></view>
-<view class="grid"><view class="metric"><view class="metric-label">RMS</view><view class="metric-value">{{metricView ? metricView.rms : '--'}} <text class="unit">dBFS</text></view></view><view class="metric"><view class="metric-label">数字峰值</view><view class="metric-value">{{metricView ? metricView.peak : '--'}} <text class="unit">dBFS</text></view></view><view class="metric"><view class="metric-label">主峰频率</view><view class="metric-value">{{metricView ? metricView.frequency : '--'}} <text class="unit">Hz</text></view></view><view class="metric"><view class="metric-label">削波帧</view><view class="metric-value">{{metricView ? metricView.clipped : '--'}}</view></view></view>
-<view class="controls"><button class="control-button {{state === 'paused' ? 'resume-button' : 'pause-button'}}" disabled="{{state !== 'analysing' && state !== 'paused'}}" bindtap="togglePause">{{state === 'paused' ? '继续分析' : '暂停分析'}}</button><button wx:if="{{!recording}}" class="primary record" disabled="{{state !== 'analysing'}}" bindtap="startRecording">开始录音</button><button wx:else class="danger" bindtap="stopRecording">结束录音</button></view><button class="secondary stop-analysis" bindtap="stopAnalysis">结束分析（不保存录音）</button></view>
+<view class="page">
+  <view class="top">
+    <view>
+      <view class="title">{{mode === 'phone' ? '手机麦克风' : '耳机麦克风'}}</view>
+      <view class="subtitle">{{source}} · 分析 {{elapsed}} · {{earSide === 'auto' ? '自动耳侧' : '用户声明' + (earSide === 'left' ? '左耳' : '右耳')}}</view>
+    </view>
+    <text class="tag {{recording ? 'warn' : (state === 'analysing' ? 'ok' : 'warn')}}">{{recording ? '录音 ' + recordingElapsed + '/00:30' : (state === 'analysing' ? '分析中' : (state === 'paused' ? '已暂停' : '准备中'))}}</text>
+  </view>
+  <view wx:if="{{warning}}" class="notice">{{warning}}</view>
+  <view wx:if="{{error}}" class="notice error">{{error}}</view>
+
+  <view class="chart-card">
+    <view class="spectrum-heading">
+      <view>
+        <view class="chart-label">频谱 · 20–500 Hz · {{weightingLabel}}</view>
+        <view class="chart-note">0.98 Hz/bin · 有效分辨率约 1.95 Hz · 512 ms 数据窗；声压级未经设备校准。</view>
+      </view>
+      <view class="chart-switches">
+        <view class="switch-row">
+          <text>计权</text>
+          <button data-weighting="a" bindtap="setWeighting" class="axis-button {{weighting === 'a' ? 'active' : ''}}">A</button>
+          <button data-weighting="linear" bindtap="setWeighting" class="axis-button {{weighting === 'linear' ? 'active' : ''}}">线性</button>
+        </view>
+        <view class="switch-row">
+          <text>横轴</text>
+          <button data-axis="log" bindtap="setSpectrumAxis" class="axis-button {{spectrumAxis === 'log' ? 'active' : ''}}">对数</button>
+          <button data-axis="linear" bindtap="setSpectrumAxis" class="axis-button {{spectrumAxis === 'linear' ? 'active' : ''}}">线性</button>
+        </view>
+      </view>
+    </view>
+    <canvas id="spectrumCanvas" canvas-id="spectrum" class="chart spectrum-chart" width="{{canvasWidth}}" height="{{canvasHeight}}" style="height: {{canvasCssHeight}}px;"></canvas>
+    <view class="spectrum-legend">
+      <view><text class="line-swatch live-line"></text>实时频谱</view>
+      <view wx:if="{{hasReference}}"><text class="line-swatch reference-line"></text>参考 {{referenceTime}}</view>
+      <view><text class="band-swatch band-low"></text>20–60 Hz</view>
+      <view><text class="band-swatch band-mid"></text>70–150 Hz</view>
+      <view><text class="band-swatch band-high"></text>160–240 Hz</view>
+    </view>
+    <view class="axis-caption"><text>纵轴：估计声压级 / {{weightingUnit}}</text><text>横轴：频率 / Hz</text></view>
+    <view class="scale-controls">
+      <button data-mode="auto" bindtap="setYScaleMode" class="scale-button {{yScaleMode === 'auto' ? 'active' : ''}}">自动纵轴</button>
+      <button data-mode="manual" bindtap="setYScaleMode" class="scale-button {{yScaleMode === 'manual' ? 'active' : ''}}">手动纵轴</button>
+      <button class="reference-button" disabled="{{!hasData}}" bindtap="setReference">{{hasReference ? '更新参考' : '设为参考'}}</button>
+      <button wx:if="{{hasReference}}" class="clear-reference" bindtap="clearReference">清除参考</button>
+      <view wx:if="{{yScaleMode === 'manual'}}" class="range-inputs">
+        <input type="text" value="{{manualMin}}" bindinput="setManualMin" placeholder="最小 {{weightingUnit}}"/>
+        <text>至</text>
+        <input type="text" value="{{manualMax}}" bindinput="setManualMax" placeholder="最大 {{weightingUnit}}"/>
+        <button bindtap="applyManualRange">应用</button>
+      </view>
+    </view>
+  </view>
+
+  <view class="metric-section-label">实时指标 · {{weightingLabel}}</view>
+  <view class="grid">
+    <view class="metric"><view class="metric-label">总声压级</view><view class="metric-value">{{metricView ? metricView.total : '--'}} <text class="unit">{{weightingUnit}}</text></view></view>
+    <view class="metric"><view class="metric-label">低频峰值 · 20–60 Hz</view><view class="metric-value">{{metricView ? metricView.low : '--'}} <text class="unit">{{weightingUnit}}</text></view></view>
+    <view class="metric"><view class="metric-label">中频峰值 · 70–150 Hz</view><view class="metric-value">{{metricView ? metricView.mid : '--'}} <text class="unit">{{weightingUnit}}</text></view></view>
+    <view class="metric"><view class="metric-label">高频峰值 · 160–240 Hz</view><view class="metric-value">{{metricView ? metricView.high : '--'}} <text class="unit">{{weightingUnit}}</text></view></view>
+  </view>
+
+  <view wx:if="{{hasReference}}" class="reference-metrics">
+    <view class="metric-section-label reference-title">参考指标 · {{referenceTime}} · {{weightingLabel}}</view>
+    <view class="grid">
+      <view class="metric reference-metric"><view class="metric-label">总声压级</view><view class="metric-value">{{referenceMetricView.total}} <text class="unit">{{weightingUnit}}</text></view></view>
+      <view class="metric reference-metric"><view class="metric-label">低频峰值 · 20–60 Hz</view><view class="metric-value">{{referenceMetricView.low}} <text class="unit">{{weightingUnit}}</text></view></view>
+      <view class="metric reference-metric"><view class="metric-label">中频峰值 · 70–150 Hz</view><view class="metric-value">{{referenceMetricView.mid}} <text class="unit">{{weightingUnit}}</text></view></view>
+      <view class="metric reference-metric"><view class="metric-label">高频峰值 · 160–240 Hz</view><view class="metric-value">{{referenceMetricView.high}} <text class="unit">{{weightingUnit}}</text></view></view>
+    </view>
+  </view>
+
+  <view class="controls">
+    <button class="control-button {{state === 'paused' ? 'resume-button' : 'pause-button'}}" disabled="{{state !== 'analysing' && state !== 'paused'}}" bindtap="togglePause">{{state === 'paused' ? '继续分析' : '暂停分析'}}</button>
+    <button wx:if="{{!recording}}" class="primary record" disabled="{{state !== 'analysing'}}" bindtap="startRecording">开始录音</button>
+    <button wx:else class="danger" bindtap="stopRecording">结束录音</button>
+  </view>
+  <button class="secondary stop-analysis" bindtap="stopAnalysis">结束分析（不保存录音）</button>
+</view>

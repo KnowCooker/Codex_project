@@ -10,3 +10,15 @@
 .reference-button, .clear-reference { margin:0; padding:9rpx 16rpx; font-size:21rpx; line-height:1.35; }
 .reference-button { color:#9a5a24; background:rgba(255,231,204,.82); outline:1rpx solid rgba(226,138,67,.55); }
 .clear-reference { color:#718096; background:rgba(237,241,247,.78); }
+.chart-switches { display:flex; flex-direction:column; gap:8rpx; flex-shrink:0; }
+.switch-row { display:flex; align-items:center; justify-content:flex-end; gap:6rpx; color:#718096; font-size:18rpx; }
+.switch-row .axis-button { min-width:68rpx; }
+.metric-section-label { margin:4rpx 4rpx 12rpx; color:#526782; font-size:22rpx; font-weight:600; }
+.reference-metrics { margin-top:22rpx; padding:16rpx; border-radius:18rpx; background:rgba(255,240,221,.42); border:1rpx solid rgba(226,138,67,.22); }
+.reference-title { color:#9a5a24; }
+.reference-metric { background:rgba(255,250,244,.62); border-color:rgba(255,236,214,.9); }
+@media (max-width: 360px) {
+  .metric-label { font-size:19rpx; }
+  .metric-value { font-size:28rpx; }
+  .chart-switches { width:100%; flex-direction:row; justify-content:space-between; }
+}
