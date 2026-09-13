@@ -3,6 +3,44 @@ const { fft, hann } = require('../utils/fft')
 const DEFAULT_MIN_FREQUENCY = 20
 const DEFAULT_MAX_FREQUENCY = 500
 
+function makeLowPassTaps(sampleRate, cutoffHz, tapCount = 97) {
+  const taps = new Float32Array(tapCount); const middle = (tapCount - 1) / 2
+  let total = 0
+  for (let i = 0; i < tapCount; i++) {
+    const n = i - middle
+    const sinc = n === 0 ? 2 * cutoffHz / sampleRate : Math.sin(2 * Math.PI * cutoffHz * n / sampleRate) / (Math.PI * n)
+    const window = .54 - .46 * Math.cos(2 * Math.PI * i / (tapCount - 1))
+    taps[i] = sinc * window; total += taps[i]
+  }
+  for (let i = 0; i < tapCount; i++) taps[i] /= total
+  return taps
+}
+
+// FIR anti-alias filter evaluated only at decimation instants. 48 kHz -> 2 kHz preserves 20–500 Hz analysis.
+class Decimator {
+  constructor(inputRate, outputRate = 2000, cutoffHz = 800) {
+    this.ratio = Math.max(1, Math.round(inputRate / outputRate))
+    this.outputRate = inputRate / this.ratio
+    this.taps = makeLowPassTaps(inputRate, Math.min(cutoffHz, this.outputRate * .42))
+    this.history = new Float32Array(this.taps.length)
+    this.cursor = 0; this.phase = 0
+  }
+  process(input) {
+    const output = []
+    for (let i = 0; i < input.length; i++) {
+      this.history[this.cursor] = input[i]
+      this.cursor = (this.cursor + 1) % this.history.length
+      this.phase++
+      if (this.phase < this.ratio) continue
+      this.phase = 0
+      let value = 0; let index = (this.cursor - 1 + this.history.length) % this.history.length
+      for (let j = 0; j < this.taps.length; j++) { value += this.history[index] * this.taps[j]; index = (index - 1 + this.history.length) % this.history.length }
+      output.push(value)
+    }
+    return Float32Array.from(output)
+  }
+}
+
 class HighPassFilter {
   constructor(sampleRate, cutoffHz = 7) {
     const dt = 1 / sampleRate
@@ -77,4 +115,4 @@ function downsample(array, count) {
   for (let i = 0; i < array.length; i += step) output.push(Number(array[i].toFixed(2)))
   return output
 }
-module.exports = { parsePcm16, analyse, HighPassFilter, DEFAULT_MIN_FREQUENCY, DEFAULT_MAX_FREQUENCY }
+module.exports = { parsePcm16, analyse, HighPassFilter, Decimator, DEFAULT_MIN_FREQUENCY, DEFAULT_MAX_FREQUENCY }
