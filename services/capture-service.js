@@ -8,11 +8,12 @@ class CaptureService {
     this.recorder = wx.getRecorderManager()
     this.state = STATES.IDLE
     this.callbacks = {}
-    this.samples = new Float32Array(0)
     this.sampleRate = 48000
     this.analysisSampleRate = 2000
     this.fftSize = 2048
     this.analysisWindowSize = 1024
+    this.samples = new Float32Array(this.fftSize * 2)
+    this.sampleCount = 0
     this.startedAt = 0
     this.mode = 'phone'
     this.bind()
@@ -23,16 +24,12 @@ class CaptureService {
       try {
         const frame = this.decimator.process(this.highPass.process(parsePcm16(frameBuffer)))
         if (!frame.length) return
-        const all = new Float32Array(Math.min(this.fftSize * 2, this.samples.length + frame.length))
-        const keep = Math.min(this.samples.length, all.length - frame.length)
-        if (keep) all.set(this.samples.subarray(this.samples.length - keep), 0)
-        all.set(frame.subarray(Math.max(0, frame.length - (all.length - keep))), keep)
-        this.samples = all
+        this.appendSamples(frame)
         // 4 KB PCM frames at 48 kHz arrive about every 43 ms. Analyse each frame
         // once the one-second FFT window is full for a practical 20-24 FPS UI.
-        if (Date.now() - this.lastAnalysisAt < 40 || this.samples.length < this.analysisWindowSize) return
+        if (Date.now() - this.lastAnalysisAt < 40 || this.sampleCount < this.analysisWindowSize) return
         this.lastAnalysisAt = Date.now()
-        const result = this.smoothResult(analyse(this.samples, this.analysisSampleRate, this.fftSize, { windowSize: this.analysisWindowSize }))
+        const result = this.smoothResult(analyse(this.samples.subarray(0, this.sampleCount), this.analysisSampleRate, this.fftSize, { windowSize: this.analysisWindowSize, workspace: this.dspWorkspace }))
         if (result && this.state === STATES.ANALYSING) this.callbacks.data && this.callbacks.data(result)
       } catch (error) { this.callbacks.error && this.callbacks.error('PCM 帧无法解析：' + error.message) }
     })
@@ -54,18 +51,25 @@ class CaptureService {
     })
   }
   on(callbacks) { this.callbacks = callbacks || {} }
+  appendSamples(frame) {
+    const capacity = this.samples.length
+    if (frame.length >= capacity) {
+      this.samples.set(frame.subarray(frame.length - capacity)); this.sampleCount = capacity; return
+    }
+    const overflow = Math.max(0, this.sampleCount + frame.length - capacity)
+    if (overflow) { this.samples.copyWithin(0, overflow, this.sampleCount); this.sampleCount -= overflow }
+    this.samples.set(frame, this.sampleCount); this.sampleCount += frame.length
+  }
   smoothResult(result) {
     if (!result) return result
     // Faster attack/release than the previous value to avoid visible spectral lag.
     const alpha = .5
-    if (this.smoothedSpectrum && this.smoothedSpectrum.length === result.spectrum.length) {
-      result.spectrum = result.spectrum.map((point, index) => ({
-        frequency: point.frequency,
-        db: Number((this.smoothedSpectrum[index] + alpha * (point.db - this.smoothedSpectrum[index])).toFixed(2))
-      }))
-    }
-    this.smoothedSpectrum = result.spectrum.map(point => point.db)
-    result.bins = this.smoothedSpectrum.slice()
+    if (this.smoothedSpectrum && this.smoothedSpectrum.length === result.spectrumDb.length) {
+      for (let index = 0; index < result.spectrumDb.length; index++) {
+        this.smoothedSpectrum[index] += alpha * (result.spectrumDb[index] - this.smoothedSpectrum[index])
+        result.spectrumDb[index] = this.smoothedSpectrum[index]
+      }
+    } else this.smoothedSpectrum = new Float32Array(result.spectrumDb)
     const target = autoDbRange(this.smoothedSpectrum)
     if (this.smoothedRange) {
       result.spectrumRange = {
@@ -81,7 +85,8 @@ class CaptureService {
     this.state = STATES.REQUESTING; this.mode = mode
     this.startOptions = { mode, platform, earSide }; this.recordingEnabled = recording; this.lastAnalysisAt = 0
     if (!preserveAnalysisState) {
-      this.samples = new Float32Array(0)
+      this.samples = new Float32Array(this.fftSize * 2); this.sampleCount = 0
+      this.dspWorkspace = {}
       this.smoothedSpectrum = null; this.smoothedRange = null
       this.highPass = new HighPassFilter(this.sampleRate, 7)
       this.decimator = new Decimator(this.sampleRate, this.analysisSampleRate)
