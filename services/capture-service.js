@@ -18,6 +18,7 @@ class CaptureService {
   }
   bind() {
     this.recorder.onFrameRecorded(({ frameBuffer }) => {
+      if (this.state !== STATES.ANALYSING) return
       try {
         const frame = this.decimator.process(this.highPass.process(parsePcm16(frameBuffer)))
         if (!frame.length) return
@@ -96,11 +97,17 @@ class CaptureService {
   }
   pause() {
     if (this.state !== STATES.ANALYSING) return
-    this.recorder.pause(); this.state = STATES.PAUSED; this.callbacks.state && this.callbacks.state(this.state, { recording: this.recordingEnabled })
+    this.state = STATES.PAUSED
+    this.callbacks.state && this.callbacks.state(this.state, { recording: this.recordingEnabled })
+    if (wx.nextTick) wx.nextTick(() => this.recorder.pause())
+    else this.recorder.pause()
   }
   resume() {
     if (this.state !== STATES.PAUSED) return
-    this.recorder.resume(); this.state = STATES.ANALYSING; this.callbacks.state && this.callbacks.state(this.state, { recording: this.recordingEnabled })
+    this.state = STATES.ANALYSING
+    this.callbacks.state && this.callbacks.state(this.state, { recording: this.recordingEnabled })
+    if (wx.nextTick) wx.nextTick(() => this.recorder.resume())
+    else this.recorder.resume()
   }
   startRecording() {
     if (this.state !== STATES.ANALYSING || this.recordingEnabled) return

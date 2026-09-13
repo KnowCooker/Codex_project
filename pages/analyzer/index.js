@@ -4,7 +4,7 @@ const repo = require('../../services/recording-repository')
 
 let capture
 Page({
-  data: { mode: 'phone', earSide: 'auto', source: 'mic', state: 'idle', elapsed: '00:00', recordingElapsed: '00:00', recording: false, metrics: null, error: '', warning: '', hasData: false, spectrumAxis: 'log', spectrumLabel: '对数频率轴', yScaleMode: 'auto', manualMin: '-80', manualMax: '0', manualRange: { min: -80, max: 0 } },
+  data: { mode: 'phone', earSide: 'auto', source: 'mic', state: 'idle', elapsed: '00:00', recordingElapsed: '00:00', recording: false, metrics: null, error: '', warning: '', hasData: false, spectrumAxis: 'log', spectrumLabel: '对数频率轴', yScaleMode: 'auto', manualMin: '-80', manualMax: '0', manualRange: { min: -80, max: 0 }, canvasWidth: 320, canvasHeight: 300, canvasCssHeight: 300 },
   onLoad(query) {
     const profile = getSystemProfile(); const mode = query.mode || 'phone'; const earSide = query.earSide || 'auto'
     this.setData({ mode, earSide, source: query.source || requestedAudioSource(mode, profile.platform), profile, warning: mode === 'headset' ? '耳机输入为“未验证”。请在敲击测试后确认继续；断开耳机将安全停止。' : '' })
@@ -20,6 +20,8 @@ Page({
     })
     this.start()
   },
+  onReady() { this.measureChart() },
+  onResize() { wx.nextTick(() => this.measureChart()) },
   onUnload() { if (capture) capture.stop('page-hide'); clearInterval(this.timer) },
   onHide() { if (capture && this.data.state === STATES.ANALYSING) capture.stop('page-hidden') },
   async start() {
@@ -69,12 +71,27 @@ Page({
       if (this.latestMetrics) this.draw(this.latestMetrics)
     })
   },
+  measureChart() {
+    wx.createSelectorQuery().in(this).select('#spectrumCanvas').boundingClientRect(rect => {
+      if (!rect || !rect.width) return
+      const windowInfo = wx.getWindowInfo ? wx.getWindowInfo() : { windowHeight: 700 }
+      const width = Math.round(rect.width)
+      const height = Math.round(Math.max(250, Math.min(width * .92, windowInfo.windowHeight * .46)))
+      this.chartSize = { width, height }
+      this.setData({ canvasWidth: width, canvasHeight: height, canvasCssHeight: height }, () => {
+        if (this.latestMetrics) this.draw(this.latestMetrics)
+      })
+    }).exec()
+  },
   draw(metrics) { this.drawSpectrum(metrics) },
   drawSpectrum(metrics) {
-    const ctx = wx.createCanvasContext('spectrum', this); const width = 694, height = 420
+    const ctx = wx.createCanvasContext('spectrum', this)
+    const width = this.chartSize ? this.chartSize.width : this.data.canvasWidth
+    const height = this.chartSize ? this.chartSize.height : this.data.canvasHeight
+    const fontSize = Math.max(10, Math.min(13, width / 27))
     const values = metrics.spectrum || []; const autoRange = metrics.spectrumRange || { min: -100, max: 0 }
     const range = this.data.yScaleMode === 'manual' ? this.data.manualRange : autoRange; const axis = this.data.spectrumAxis
-    const plot = { left: 82, right: width - 18, top: 24, bottom: height - 52 }
+    const plot = { left: Math.max(48, fontSize * 4), right: width - 10, top: 14, bottom: height - Math.max(38, fontSize * 3.2) }
     const plotWidth = plot.right - plot.left; const plotHeight = plot.bottom - plot.top
     const projectX = frequency => plot.left + (axis === 'log' ? Math.log(frequency / 20) / Math.log(500 / 20) : (frequency - 20) / 480) * plotWidth
     const projectY = db => {
@@ -88,23 +105,24 @@ Page({
     ctx.setFillStyle('#f9fcff'); ctx.fillRect(0, 0, width, height)
     ctx.setStrokeStyle('#dbe6f3'); ctx.setLineWidth(1)
     ctx.setLineDash([6, 5])
-    ctx.setFillStyle('#60718d'); ctx.setFontSize(17)
+    ctx.setFillStyle('#60718d'); ctx.setFontSize(fontSize)
     for (let i = 0; i <= 5; i++) {
       const y = plot.top + i / 5 * plotHeight; const value = range.max - i / 5 * (range.max - range.min)
       ctx.beginPath(); ctx.moveTo(plot.left, y); ctx.lineTo(plot.right, y); ctx.stroke()
-      ctx.fillText(formatTick(value), 38, y + 6)
+      const label = formatTick(value); ctx.fillText(label, plot.left - label.length * fontSize * .58 - 8, y + fontSize * .35)
     }
     const ticks = axis === 'log' ? [20, 30, 50, 70, 100, 200, 300, 500] : [20, 100, 200, 300, 400, 500]
     ticks.forEach(freq => {
       const x = projectX(freq); ctx.beginPath(); ctx.moveTo(x, plot.top); ctx.lineTo(x, plot.bottom); ctx.stroke()
-      const offset = String(freq).length * 4.5; ctx.fillText(String(freq), Math.max(plot.left - 2, Math.min(plot.right - offset * 2, x - offset)), plot.bottom + 23)
+      const label = String(freq); const labelWidth = label.length * fontSize * .55
+      ctx.fillText(label, Math.max(plot.left - 2, Math.min(plot.right - labelWidth, x - labelWidth / 2)), plot.bottom + fontSize * 1.55)
     })
     ctx.setLineDash([]); ctx.setStrokeStyle('#718096'); ctx.setLineWidth(1.5)
     ctx.beginPath(); ctx.moveTo(plot.left, plot.top); ctx.lineTo(plot.left, plot.bottom); ctx.lineTo(plot.right, plot.bottom); ctx.stroke()
     for (let i = 0; i <= 5; i++) { const y = plot.top + i / 5 * plotHeight; ctx.beginPath(); ctx.moveTo(plot.left - 5, y); ctx.lineTo(plot.left, y); ctx.stroke() }
     ticks.forEach(freq => { const x = projectX(freq); ctx.beginPath(); ctx.moveTo(x, plot.bottom); ctx.lineTo(x, plot.bottom + 5); ctx.stroke() })
-    ctx.setFontSize(18); ctx.fillText('频率 / Hz', (plot.left + plot.right) / 2 - 32, height - 8)
-    ctx.save(); ctx.translate(15, (plot.top + plot.bottom) / 2 + 58); ctx.rotate(-Math.PI / 2); ctx.fillText('估计声压级 / dB', 0, 0); ctx.restore()
+    ctx.setFontSize(fontSize); ctx.fillText('频率 / Hz', (plot.left + plot.right) / 2 - fontSize * 2.7, height - 5)
+    ctx.save(); ctx.translate(fontSize, (plot.top + plot.bottom) / 2 + fontSize * 4.5); ctx.rotate(-Math.PI / 2); ctx.fillText('估计声压级 / dB', 0, 0); ctx.restore()
     if (values.length) {
       ctx.save(); ctx.beginPath(); ctx.rect(plot.left, plot.top, plotWidth, plotHeight); ctx.clip()
       ctx.setStrokeStyle('#7279dc'); ctx.setLineWidth(2.5); ctx.beginPath()
