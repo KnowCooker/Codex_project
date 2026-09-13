@@ -1,0 +1,7 @@
+{
+  "description": "噪声分析测试 Android 版",
+  "compileType": "miniprogram",
+  "appid": "请填写-Android-版-AppID",
+  "miniprogramRoot": "./",
+  "setting": { "urlCheck": false, "es6": true, "enhance": true, "postcss": true }
+}

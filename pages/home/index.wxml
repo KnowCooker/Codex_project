@@ -1,0 +1,15 @@
+<view class="page">
+  <view class="card"><view class="title">声音观察与频谱分析</view><view class="subtitle">非计量级工具。结果仅用于相对观察，不用于职业健康、执法或校准判断。</view></view>
+  <view wx:if="{{buildMessage}}" class="notice">{{buildMessage}}</view><view class="card"><view class="section-title">设备与权限</view>
+    <view class="row"><text class="muted">当前平台</text><text class="value">{{profile.platform}} · {{profile.model}}</text></view><view class="divider" />
+    <view class="row"><text class="muted">系统 / 微信</text><text class="value">{{profile.system}} / {{profile.wechatVersion}}</text></view><view class="divider" />
+    <view class="row"><text class="muted">麦克风权限</text><text class="tag {{permission === '已授权' ? 'ok' : 'warn'}}">{{permission}}</text></view>
+  </view>
+  <view class="card"><view class="section-title">选择采集模式</view>
+    <view class="mode-row"><view class="mode {{mode === 'phone' ? 'selected' : ''}}" data-mode="phone" bindtap="chooseMode"><text>手机麦克风</text><text class="muted">内置单通道</text></view><view class="mode {{mode === 'headset' ? 'selected' : ''}}" data-mode="headset" bindtap="chooseMode"><text>耳机麦克风</text><text class="muted">需用户确认路由</text></view></view>
+    <view wx:if="{{mode === 'headset'}}" class="notice">耳机断开后测量会停止，不会自动切回手机。小程序无法直接设置耳机左右侧麦克风。</view>
+    <view wx:if="{{mode === 'headset'}}" class="side-row"><button data-side="auto" bindtap="chooseEarSide" class="small {{earSide === 'auto' ? 'active' : ''}}">自动</button><button data-side="left" bindtap="chooseEarSide" class="small {{earSide === 'left' ? 'active' : ''}}">用户设定左耳</button><button data-side="right" bindtap="chooseEarSide" class="small {{earSide === 'right' ? 'active' : ''}}">用户设定右耳</button></view>
+  </view>
+  <button class="primary" disabled="{{!buildAllowed}}" bindtap="start">开始分析</button>
+  <view wx:if="{{latest}}" class="card latest" bindtap="openLatest"><view class="section-title">最近一次测试</view><view class="row"><text>{{latest.name}}</text><text class="tag">{{latest.mode === 'phone' ? '手机' : '耳机'}}</text></view><view class="subtitle">{{latest.createdAt}} · 主峰 {{latest.summary.peakFrequency}} Hz</view></view>
+</view>

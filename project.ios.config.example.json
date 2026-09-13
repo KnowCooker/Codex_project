@@ -1,0 +1,7 @@
+{
+  "description": "噪声分析测试 iOS 版",
+  "compileType": "miniprogram",
+  "appid": "请填写-iOS-版-AppID",
+  "miniprogramRoot": "./",
+  "setting": { "urlCheck": false, "es6": true, "enhance": true, "postcss": true }
+}

@@ -1,0 +1,26 @@
+{
+  "pages": [
+    "pages/home/index",
+    "pages/analyzer/index",
+    "pages/history/index",
+    "pages/record-detail/index",
+    "pages/compare/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "噪声分析",
+    "navigationBarBackgroundColor": "#eef5ff",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#eef5ff",
+    "backgroundTextStyle": "light"
+  },
+  "tabBar": {
+    "color": "#718096",
+    "selectedColor": "#158f88",
+    "backgroundColor": "#f8fbff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/home/index", "text": "首页" },
+      { "pagePath": "pages/history/index", "text": "记录" }
+    ]
+  }
+}

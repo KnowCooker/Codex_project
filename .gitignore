@@ -1,0 +1,6 @@
+# WeChat Developer Tools machine-local configuration
+project.private.config.json
+
+# Dependency and build output
+node_modules/
+dist/
