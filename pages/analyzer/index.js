@@ -10,8 +10,17 @@ Page({
     this.setData({ mode, earSide, source: query.source || requestedAudioSource(mode, profile.platform), profile, warning: mode === 'headset' ? '耳机输入为“未验证”。请在敲击测试后确认继续；断开耳机将安全停止。' : '' })
     capture = new CaptureService()
     capture.on({
-      data: metrics => { this.latestMetrics = metrics; this.setData({ metricView: this.present(metrics), hasData: true }); this.draw(metrics) },
+      data: metrics => {
+        this.latestMetrics = metrics
+        const now = Date.now()
+        if (!this.data.hasData || now - (this.lastMetricUpdateAt || 0) >= 160) {
+          this.lastMetricUpdateAt = now
+          this.setData({ metricView: this.present(metrics), hasData: true })
+        }
+        this.draw(metrics)
+      },
       state: (state, options = {}) => {
+        if (state === STATES.PAUSED) this.pendingDrawMetrics = null
         if (options.recording && !this.data.recording) this.recordingStartedAt = Date.now()
         if (!options.recording) this.recordingStartedAt = 0
         this.setData({ state, recording: Boolean(options.recording) })
@@ -37,7 +46,10 @@ Page({
     const recordingSeconds = this.data.recording && this.recordingStartedAt ? Math.min(30, Math.floor((Date.now() - this.recordingStartedAt) / 1000)) : 0
     this.setData({ elapsed: format(seconds), recordingElapsed: format(recordingSeconds) })
   },
-  togglePause() { if (this.data.state === STATES.ANALYSING) capture.pause(); else if (this.data.state === STATES.PAUSED) capture.resume() },
+  togglePause() {
+    if (this.data.state === STATES.ANALYSING) { this.pendingDrawMetrics = null; capture.pause() }
+    else if (this.data.state === STATES.PAUSED) capture.resume()
+  },
   startRecording() { if (!this.data.recording && this.data.state === STATES.ANALYSING) { wx.showToast({ title: '开始新的 30 秒录音片段', icon: 'none' }); capture.startRecording() } },
   stopRecording() { if (this.data.recording) capture.stop('recording-user') },
   stopAnalysis() { clearInterval(this.timer); capture.stop('user') },
@@ -83,8 +95,20 @@ Page({
       })
     }).exec()
   },
-  draw(metrics) { this.drawSpectrum(metrics) },
-  drawSpectrum(metrics) {
+  draw(metrics) {
+    this.pendingDrawMetrics = metrics
+    if (!this.drawInFlight) this.flushSpectrumDraw()
+  },
+  flushSpectrumDraw() {
+    const metrics = this.pendingDrawMetrics
+    if (!metrics) return
+    this.pendingDrawMetrics = null; this.drawInFlight = true
+    this.drawSpectrum(metrics, () => {
+      this.drawInFlight = false
+      if (this.pendingDrawMetrics) wx.nextTick(() => this.flushSpectrumDraw())
+    })
+  },
+  drawSpectrum(metrics, onComplete) {
     const ctx = wx.createCanvasContext('spectrum', this)
     const width = this.chartSize ? this.chartSize.width : this.data.canvasWidth
     const height = this.chartSize ? this.chartSize.height : this.data.canvasHeight
@@ -129,6 +153,6 @@ Page({
       values.forEach((point, i) => { const x = projectX(point.frequency); const y = projectY(point.db); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y) })
       ctx.stroke(); ctx.restore()
     }
-    ctx.draw()
+    ctx.draw(false, onComplete)
   }
 })

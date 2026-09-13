@@ -12,6 +12,7 @@ class CaptureService {
     this.sampleRate = 48000
     this.analysisSampleRate = 2000
     this.fftSize = 2048
+    this.analysisWindowSize = 1024
     this.startedAt = 0
     this.mode = 'phone'
     this.bind()
@@ -29,9 +30,9 @@ class CaptureService {
         this.samples = all
         // 4 KB PCM frames at 48 kHz arrive about every 43 ms. Analyse each frame
         // once the one-second FFT window is full for a practical 20-24 FPS UI.
-        if (Date.now() - this.lastAnalysisAt < 40 || this.samples.length < this.fftSize) return
+        if (Date.now() - this.lastAnalysisAt < 40 || this.samples.length < this.analysisWindowSize) return
         this.lastAnalysisAt = Date.now()
-        const result = this.smoothResult(analyse(this.samples, this.analysisSampleRate, this.fftSize))
+        const result = this.smoothResult(analyse(this.samples, this.analysisSampleRate, this.fftSize, { windowSize: this.analysisWindowSize }))
         if (result && this.state === STATES.ANALYSING) this.callbacks.data && this.callbacks.data(result)
       } catch (error) { this.callbacks.error && this.callbacks.error('PCM 帧无法解析：' + error.message) }
     })
@@ -55,7 +56,8 @@ class CaptureService {
   on(callbacks) { this.callbacks = callbacks || {} }
   smoothResult(result) {
     if (!result) return result
-    const alpha = .22
+    // Faster attack/release than the previous value to avoid visible spectral lag.
+    const alpha = .5
     if (this.smoothedSpectrum && this.smoothedSpectrum.length === result.spectrum.length) {
       result.spectrum = result.spectrum.map((point, index) => ({
         frequency: point.frequency,
@@ -67,8 +69,8 @@ class CaptureService {
     const target = autoDbRange(this.smoothedSpectrum)
     if (this.smoothedRange) {
       result.spectrumRange = {
-        min: Number((this.smoothedRange.min + .2 * (target.min - this.smoothedRange.min)).toFixed(1)),
-        max: Number((this.smoothedRange.max + .2 * (target.max - this.smoothedRange.max)).toFixed(1))
+        min: Number((this.smoothedRange.min + .35 * (target.min - this.smoothedRange.min)).toFixed(1)),
+        max: Number((this.smoothedRange.max + .35 * (target.max - this.smoothedRange.max)).toFixed(1))
       }
     } else result.spectrumRange = target
     this.smoothedRange = result.spectrumRange
