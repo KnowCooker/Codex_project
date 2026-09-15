@@ -1,12 +1,13 @@
 <view class="page">
-  <view class="recording-header">
-    <view class="title">录音文件</view>
-    <view class="subtitle">录音保存在本机小程序目录；点击文件可查看并回放 WAV。</view>
-  </view>
+  <view class="row recording-header"><view><view class="title">录音文件</view><view class="subtitle">点击文件可查看并回放；左滑可置顶或删除。</view></view><button class="compare-entry" bindtap="openCompare">数据对比</button></view>
   <view wx:if="{{!recordings.length}}" class="empty">还没有录音文件<br/>请在实时分析页点击“开始录音”</view>
-  <view wx:for="{{recordings}}" wx:key="id" class="card recording-file" data-id="{{item.id}}" bindtap="open">
-    <view class="row"><text class="file-name">{{item.name}}</text><text class="format {{item.formatLabel === 'WAV' ? 'ready' : 'legacy'}}">{{item.formatLabel}}</text></view>
-    <view class="file-meta">{{item.createdAt}} · {{item.mode === 'phone' ? '手机麦克风' : '耳机麦克风'}}</view>
-    <view class="row file-stats"><text>{{item.durationLabel}}</text><text>{{item.fileSizeLabel}}</text></view>
+  <view wx:for="{{recordings}}" wx:key="id" class="swipe-row">
+    <view class="swipe-actions"><button class="pin-action" data-id="{{item.id}}" catchtap="togglePinned">{{item.pinned ? '取消置顶' : '置顶'}}</button><button class="delete-action" data-id="{{item.id}}" catchtap="remove">删除</button></view>
+    <view class="card recording-file {{swipingId === item.id ? 'swiping' : ''}}" data-id="{{item.id}}" style="transform:translateX({{item.offset}}px);" bindtouchstart="touchStart" bindtouchmove="touchMove" bindtouchend="touchEnd" bindtouchcancel="touchEnd" bindtap="open">
+      <view class="row"><view class="file-title"><text wx:if="{{item.pinned}}" class="pin-mark">置顶</text><text class="file-name">{{item.name}}</text></view><text class="format {{item.formatLabel === 'WAV' ? 'ready' : 'legacy'}}">{{item.formatLabel}}</text></view>
+      <view class="file-meta">{{item.createdAt}} · {{item.mode === 'phone' ? '手机麦克风' : '耳机麦克风'}}</view>
+      <view class="row file-stats"><text>{{item.durationLabel}} · {{item.fileSizeLabel}}</text><button class="rename-button" data-id="{{item.id}}" catchtap="beginRename">重命名</button></view>
+    </view>
   </view>
+  <view wx:if="{{renameOpen}}" class="rename-mask" bindtap="cancelRename" catchtouchmove="keepOpen"><view class="rename-dialog" catchtap="keepOpen"><view class="rename-title">重命名录音</view><input class="rename-input" maxlength="60" focus value="{{renameValue}}" bindinput="setRenameValue" placeholder="输入录音名称"/><view class="rename-actions"><button class="secondary" bindtap="cancelRename">取消</button><button class="primary" bindtap="saveRename">保存</button></view></view></view>
 </view>

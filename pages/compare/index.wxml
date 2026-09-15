@@ -1,1 +1,28 @@
-<view class="page"><view class="card"><view class="title">两次顺序测量对比</view><view class="subtitle">选择两条记录叠加查看频谱。青色为 A，橙色为 B。</view></view><view class="card"><view class="section-title">记录 A</view><picker range="{{records}}" range-key="name" bindchange="pick" data-slot="first"><view class="picker">{{first ? first.name : '选择一条记录'}}<text>›</text></view></picker><view class="section-title spacing">记录 B</view><picker range="{{records}}" range-key="name" bindchange="pick" data-slot="second"><view class="picker">{{second ? second.name : '选择另一条记录'}}<text>›</text></view></picker></view><view wx:if="{{warning}}" class="notice">{{warning}}</view><view class="chart-card"><view class="chart-label">频谱叠加 · -100 至 0 dBFS</view><canvas canvas-id="comparison" class="chart" width="694" height="300"></canvas></view></view>
+<view class="page">
+  <view class="compare-header"><view class="title">数据对比</view><view class="subtitle">勾选录音文件，在同一图窗中叠加频谱。最多同时显示 8 条曲线。</view></view>
+  <view class="card selection-card">
+    <view class="row"><view class="section-title">选择录音</view><text class="selection-count">已选 {{selectedCount}} 条</text></view>
+    <view wx:if="{{!records.length}}" class="empty compact-empty">暂无包含频谱数据的录音</view>
+    <checkbox-group wx:else bindchange="toggleSelection"><scroll-view scroll-y class="record-list"><label wx:for="{{records}}" wx:key="id" class="record-option"><checkbox value="{{item.id}}" checked="{{item.selected}}" color="#38b6ad"/><view class="record-copy"><view class="record-name">{{item.name}}</view><view class="record-meta">{{item.createdAt}} · {{item.mode === 'phone' ? '手机' : '耳机'}} · {{item.averageLabel}}</view></view></label></scroll-view></checkbox-group>
+  </view>
+  <view wx:if="{{warning}}" class="notice compare-warning">{{warning}}</view>
+  <view class="chart-card">
+    <view class="chart-label">频谱叠加 · 20–500 Hz · {{weightingLabel}}</view>
+    <view class="chart-shell"><canvas id="comparisonCanvas" canvas-id="comparison" class="chart" width="{{canvasWidth}}" height="{{canvasHeight}}" style="height:{{canvasCssHeight}}px;"></canvas></view>
+    <view wx:if="{{tableRows.length}}" class="legend"><view wx:for="{{tableRows}}" wx:key="id"><text class="legend-line" style="background:{{item.color}};"></text>{{item.name}}</view></view>
+    <view class="axis-caption"><text>纵轴：估计声压级 / {{weightingUnit}}</text><text>横轴：频率 / Hz</text></view>
+    <button class="drawing-settings-toggle" bindtap="toggleSettings">{{settingsOpen ? '收起绘图设置' : '绘图设置'}}</button>
+    <view wx:if="{{settingsOpen}}" class="drawing-settings">
+      <view class="setting-row"><text class="setting-label">计权</text><view class="setting-options"><button data-weighting="a" bindtap="setWeighting" class="option-button {{weighting === 'a' ? 'active' : ''}}">A</button><button data-weighting="linear" bindtap="setWeighting" class="option-button {{weighting === 'linear' ? 'active' : ''}}">线性</button></view></view>
+      <view class="setting-row"><text class="setting-label">横轴</text><view class="setting-options"><button data-axis="log" bindtap="setSpectrumAxis" class="option-button {{spectrumAxis === 'log' ? 'active' : ''}}">对数</button><button data-axis="linear" bindtap="setSpectrumAxis" class="option-button {{spectrumAxis === 'linear' ? 'active' : ''}}">线性</button></view></view>
+      <view class="setting-row"><text class="setting-label">纵轴</text><view class="setting-options"><button data-mode="auto" bindtap="setYScaleMode" class="option-button {{yScaleMode === 'auto' ? 'active' : ''}}">自动</button><button data-mode="manual" bindtap="setYScaleMode" class="option-button {{yScaleMode === 'manual' ? 'active' : ''}}">固定</button></view></view>
+      <view wx:if="{{yScaleMode === 'manual'}}" class="range-inputs"><input type="text" value="{{manualMin}}" bindinput="setManualMin" placeholder="最小 {{weightingUnit}}"/><text>至</text><input type="text" value="{{manualMax}}" bindinput="setManualMax" placeholder="最大 {{weightingUnit}}"/><button bindtap="applyManualRange">应用</button></view>
+    </view>
+  </view>
+  <view class="card result-card">
+    <view class="section-title">总声压级对比</view>
+    <view wx:if="{{!tableRows.length}}" class="empty compact-empty">请先勾选录音文件</view>
+    <view wx:else class="result-table"><view class="table-row table-head"><text>录音</text><text>平均时长</text><text>总声压级</text></view><view wx:for="{{tableRows}}" wx:key="id" class="table-row"><view class="table-name"><text class="table-color" style="background:{{item.color}};"></text><text>{{item.name}}</text></view><text>{{item.averageLabel}}</text><text class="table-level">{{item.totalLevel}} {{weightingUnit}}</text></view></view>
+    <view class="result-note">数值未经设备校准，仅用于同设备、同输入模式下的相对比较。</view>
+  </view>
+</view>

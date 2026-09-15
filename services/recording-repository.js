@@ -6,7 +6,24 @@ function save(record) {
   const items = list()
   const index = items.findIndex(item => item.id === record.id)
   if (index >= 0) items[index] = record
-  else items.unshift(record)
+  else {
+    const firstUnpinned = items.findIndex(item => !item.pinned)
+    items.splice(firstUnpinned < 0 ? items.length : firstUnpinned, 0, record)
+  }
+  wx.setStorageSync(STORAGE_KEY, items)
+  return record
+}
+function setPinned(id, pinned) {
+  const items = list()
+  const index = items.findIndex(item => item.id === id)
+  if (index < 0) return null
+  const record = Object.assign({}, items[index], { pinned: Boolean(pinned), pinnedAt: pinned ? Date.now() : 0 })
+  items.splice(index, 1)
+  if (pinned) items.unshift(record)
+  else {
+    const firstUnpinned = items.findIndex(item => !item.pinned)
+    items.splice(firstUnpinned < 0 ? items.length : firstUnpinned, 0, record)
+  }
   wx.setStorageSync(STORAGE_KEY, items)
   return record
 }
@@ -26,4 +43,4 @@ function clear() {
   wx.removeStorageSync(STORAGE_KEY)
 }
 
-module.exports = { list, get, save, remove, clear }
+module.exports = { list, get, save, setPinned, remove, clear }

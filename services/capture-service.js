@@ -1,6 +1,7 @@
-const { parsePcm16, analyse, autoDbRange, HighPassFilter, Decimator } = require('./dsp')
+const { parsePcm16, analyse, HighPassFilter, Decimator } = require('./dsp')
 const { requestedAudioSource } = require('./compatibility')
 const { pcmFileToWav } = require('./wav-file')
+const { SpectrumAverage } = require('./spectrum-average')
 
 const STATES = { IDLE: 'idle', REQUESTING: 'requesting', CHECKING: 'checking', ANALYSING: 'analysing', PAUSED: 'paused', STOPPING: 'stopping' }
 
@@ -17,6 +18,7 @@ class CaptureService {
     this.sampleCount = 0
     this.startedAt = 0
     this.mode = 'phone'
+    this.spectrumAverage = new SpectrumAverage(3)
     this.bind()
   }
   bind() {
@@ -27,10 +29,11 @@ class CaptureService {
         if (!frame.length) return
         this.appendSamples(frame)
         // 4 KB PCM frames at 48 kHz arrive about every 43 ms. Analyse each frame
-        // once the one-second FFT window is full for a practical 20-24 FPS UI.
+        // once the 512 ms data window is full for a practical 20-24 FPS update rate.
         if (Date.now() - this.lastAnalysisAt < 40 || this.sampleCount < this.analysisWindowSize) return
         this.lastAnalysisAt = Date.now()
-        const result = this.smoothResult(analyse(this.samples.subarray(0, this.sampleCount), this.analysisSampleRate, this.fftSize, { windowSize: this.analysisWindowSize, workspace: this.dspWorkspace }))
+        const rawResult = analyse(this.samples.subarray(0, this.sampleCount), this.analysisSampleRate, this.fftSize, { windowSize: this.analysisWindowSize, workspace: this.dspWorkspace })
+        const result = this.spectrumAverage.push(rawResult, this.lastAnalysisAt)
         if (result && this.state === STATES.ANALYSING) this.callbacks.data && this.callbacks.data(result)
       } catch (error) { this.callbacks.error && this.callbacks.error('PCM 帧无法解析：' + error.message) }
     })
@@ -128,26 +131,7 @@ class CaptureService {
     if (overflow) { this.samples.copyWithin(0, overflow, this.sampleCount); this.sampleCount -= overflow }
     this.samples.set(frame, this.sampleCount); this.sampleCount += frame.length
   }
-  smoothResult(result) {
-    if (!result) return result
-    // Faster attack/release than the previous value to avoid visible spectral lag.
-    const alpha = .5
-    if (this.smoothedSpectrum && this.smoothedSpectrum.length === result.spectrumDb.length) {
-      for (let index = 0; index < result.spectrumDb.length; index++) {
-        this.smoothedSpectrum[index] += alpha * (result.spectrumDb[index] - this.smoothedSpectrum[index])
-        result.spectrumDb[index] = this.smoothedSpectrum[index]
-      }
-    } else this.smoothedSpectrum = new Float32Array(result.spectrumDb)
-    const target = autoDbRange(this.smoothedSpectrum)
-    if (this.smoothedRange) {
-      result.spectrumRange = {
-        min: Number((this.smoothedRange.min + .35 * (target.min - this.smoothedRange.min)).toFixed(1)),
-        max: Number((this.smoothedRange.max + .35 * (target.max - this.smoothedRange.max)).toFixed(1))
-      }
-    } else result.spectrumRange = target
-    this.smoothedRange = result.spectrumRange
-    return result
-  }
+  setAverageDuration(seconds) { return this.spectrumAverage.setSeconds(seconds) }
   async start({ mode, platform, earSide = 'auto', recording = false, preserveAnalysisState = false }) {
     if (this.state !== STATES.IDLE) throw new Error('当前采集尚未结束')
     this.state = STATES.REQUESTING; this.mode = mode
@@ -155,7 +139,7 @@ class CaptureService {
     if (!preserveAnalysisState) {
       this.samples = new Float32Array(this.fftSize * 2); this.sampleCount = 0
       this.dspWorkspace = {}
-      this.smoothedSpectrum = null; this.smoothedRange = null
+      this.spectrumAverage.reset()
       this.highPass = new HighPassFilter(this.sampleRate, 7)
       this.decimator = new Decimator(this.sampleRate, this.analysisSampleRate)
     }

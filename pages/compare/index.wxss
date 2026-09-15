@@ -1,1 +1,41 @@
-.picker { color:#334563; background:rgba(255,255,255,.56); border:1rpx solid rgba(255,255,255,.82); border-radius:12rpx; padding:22rpx; display:flex; justify-content:space-between; font-size:26rpx; }.spacing { margin-top:24rpx; }.notice { margin-bottom:18rpx; }.chart-card { background:rgba(255,255,255,.62); border:1rpx solid rgba(255,255,255,.90); box-shadow:0 12rpx 32rpx rgba(76,101,141,.08); border-radius:18rpx; padding:18rpx; }.chart-label { font-size:22rpx; color:#66758d; margin:0 0 12rpx 4rpx; }.chart { width:694rpx; height:300rpx; }
+.compare-header { margin-bottom:24rpx; }
+.selection-card { padding:22rpx; }
+.selection-card .section-title, .result-card .section-title { margin-bottom:0; }
+.selection-count { color:#718096; font-size:22rpx; }
+.record-list { max-height:420rpx; margin-top:16rpx; }
+.record-option { display:flex; align-items:center; gap:14rpx; padding:16rpx 10rpx; border-bottom:1rpx solid rgba(126,149,181,.16); }
+.record-option:last-child { border-bottom:0; }
+.record-copy { min-width:0; flex:1; }
+.record-name { overflow:hidden; color:#314766; font-size:24rpx; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+.record-meta { margin-top:6rpx; color:#7a899f; font-size:19rpx; line-height:1.4; }
+.compact-empty { padding:34rpx 10rpx; font-size:24rpx; }
+.compare-warning { margin-bottom:18rpx; }
+.chart-card { width:100%; box-sizing:border-box; overflow:hidden; margin-bottom:22rpx; padding:18rpx; border:2rpx solid rgba(133,157,191,.42); border-radius:18rpx; background:rgba(255,255,255,.68); }
+.chart-label { margin:0 0 8rpx 4rpx; color:#66758d; font-size:22rpx; }
+.chart-shell { width:100%; box-sizing:border-box; padding:5rpx; overflow:hidden; border:2rpx solid #9eb2ca; border-radius:10rpx; background:#edf3fa; }
+.chart { width:100%; min-width:0; display:block; box-sizing:border-box; border:1rpx solid rgba(104,126,156,.55); border-radius:5rpx; }
+.legend { display:flex; flex-wrap:wrap; gap:8rpx 16rpx; margin:10rpx 4rpx 4rpx; color:#718096; font-size:18rpx; }
+.legend view { max-width:46%; display:flex; align-items:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.legend-line { width:28rpx; height:4rpx; flex-shrink:0; margin-right:7rpx; border-radius:99rpx; }
+.axis-caption { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8rpx 18rpx; margin:8rpx 4rpx 12rpx; color:#718096; font-size:18rpx; }
+.drawing-settings-toggle { width:100%; margin:4rpx 0 0; color:#38516f; background:rgba(224,232,246,.78); font-size:23rpx; line-height:1.8; }
+.drawing-settings { margin-top:12rpx; padding:16rpx; border:1rpx solid rgba(123,148,184,.26); border-radius:14rpx; background:rgba(237,243,250,.72); }
+.setting-row { display:flex; align-items:center; justify-content:space-between; gap:16rpx; margin-bottom:14rpx; }
+.setting-label { color:#526782; font-size:22rpx; }
+.setting-options { display:flex; flex-shrink:0; gap:8rpx; }
+.option-button { min-width:72rpx; margin:0; padding:7rpx 12rpx; color:#526782; background:rgba(232,239,250,.78); font-size:21rpx; line-height:1.4; }
+.option-button.active { color:#087f78; outline:1rpx solid #45bdb5; background:rgba(196,247,237,.72); }
+.range-inputs { width:100%; display:flex; align-items:center; gap:10rpx; color:#718096; font-size:21rpx; }
+.range-inputs input { flex:1; min-width:0; padding:12rpx; border:1rpx solid rgba(123,148,184,.35); border-radius:10rpx; color:#334563; background:rgba(255,255,255,.70); text-align:center; }
+.range-inputs button { margin:0; padding:12rpx 18rpx; color:#fff; background:#38b6ad; font-size:21rpx; }
+.result-card { padding:22rpx; }
+.result-table { margin-top:16rpx; overflow:hidden; border:1rpx solid rgba(123,148,184,.24); border-radius:12rpx; }
+.table-row { display:grid; grid-template-columns:minmax(0,1.5fr) .8fr 1fr; align-items:center; gap:10rpx; padding:15rpx 14rpx; border-bottom:1rpx solid rgba(126,149,181,.15); color:#526782; font-size:20rpx; }
+.table-row:last-child { border-bottom:0; }
+.table-head { color:#718096; background:rgba(225,234,246,.58); font-weight:650; }
+.table-name { min-width:0; display:flex; align-items:center; }
+.table-name text:last-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.table-color { width:12rpx; height:12rpx; flex-shrink:0; margin-right:8rpx; border-radius:50%; }
+.table-level { color:#263957; font-weight:650; text-align:right; white-space:nowrap; }
+.table-row > text:nth-child(2) { text-align:center; white-space:nowrap; }
+.result-note { margin-top:14rpx; color:#8a7656; font-size:19rpx; line-height:1.5; }

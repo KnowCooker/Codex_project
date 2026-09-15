@@ -24,7 +24,7 @@ function recordingChoices() {
   }))
 }
 Page({
-  data: { mode: 'phone', earSide: 'auto', source: 'mic', state: 'idle', elapsed: '00:00', recordingElapsed: '00:00.0', recordingProgress: 0, recording: false, recordingFinalizing: false, metrics: null, error: '', warning: '', hasData: false, hasReference: false, referenceTime: '', referenceMetricView: null, weighting: 'linear', weightingLabel: '线性计权', weightingUnit: 'dB', spectrumAxis: 'log', spectrumLabel: '对数频率轴', yScaleMode: 'auto', manualMin: '-80', manualMax: '0', manualRange: { min: -80, max: 0 }, canvasWidth: 320, canvasHeight: 300, canvasCssHeight: 300, recordings: [], referencePickerOpen: false, referenceLoading: false, referenceProgress: 0, referenceImportError: '' },
+  data: { mode: 'phone', earSide: 'auto', source: 'mic', state: 'idle', elapsed: '00:00', recordingElapsed: '00:00.0', recordingProgress: 0, recording: false, recordingFinalizing: false, metrics: null, error: '', warning: '', hasData: false, hasReference: false, referenceTime: '', referenceMetricView: null, weighting: 'linear', weightingLabel: '线性计权', weightingUnit: 'dB', spectrumAxis: 'log', spectrumLabel: '对数频率轴', yScaleMode: 'manual', manualMin: '-80', manualMax: '-20', manualRange: { min: -80, max: -20 }, averageSeconds: 3, settingsOpen: false, canvasWidth: 320, canvasHeight: 300, canvasCssHeight: 300, recordings: [], referencePickerOpen: false, referenceLoading: false, referenceProgress: 0, referenceImportError: '' },
   onLoad(query) {
     const profile = getSystemProfile(); const mode = query.mode || 'phone'; const earSide = query.earSide || 'auto'
     this.setData({ mode, earSide, source: query.source || requestedAudioSource(mode, profile.platform), profile, recordings: recordingChoices(), warning: mode === 'headset' ? '耳机输入为“未验证”。AirPods 的语音降噪会压低环境声；断开或路由中断时测试将立即停止。' : '' })
@@ -49,6 +49,7 @@ Page({
       routeLost: message => this.setData({ error: message }),
       error: error => this.setData({ error, state: 'idle', recording: false, recordingFinalizing: false }), stop: file => this.complete(file)
     })
+    capture.setAverageDuration(this.data.averageSeconds)
     this.start()
   },
   onReady() { this.measureChart() },
@@ -88,9 +89,11 @@ Page({
     const metrics = this.latestMetrics || { rmsDb: -100, peakDb: -100, peakFrequency: 0, clipped: 0 }
     const weightedSummary = metrics.spectrumDb ? summarizeSpectrum(metrics.spectrumDb, metrics.spectrumStartHz, metrics.binSpacingHz, metrics.rmsDb, this.data.weighting) : { total: metrics.rmsDb, low: -100, mid: -100, high: -100 }
     const now = new Date(); const id = `${Date.now()}-${Math.floor(Math.random() * 10000)}`
-    const record = { id, name: `测试 ${now.toLocaleString()}`, createdAt: now.toLocaleString(), mode: this.data.mode, earSide: this.data.earSide, earVerified: this.data.mode === 'headset' ? false : true, source: this.data.source, platform: this.data.profile.platform, model: this.data.profile.model, sampleRate: 2000, originalSampleRate: 48000, fftSize: 2048, duration: file.duration, filePath: file.tempFilePath, fileSize: file.fileSize, fileFormat: file.fileFormat, playbackReady: file.playbackReady, conversionError: file.conversionError, interruptedReason: file.stopReason || 'user', weighting: this.data.weighting, weightingUnit: this.data.weightingUnit, summary: { rmsDb: Number(metrics.rmsDb.toFixed(1)), peakDb: Number(metrics.peakDb.toFixed(1)), peakFrequency: Math.round(metrics.peakFrequency), clipped: metrics.clipped, totalLevel: Number(weightedSummary.total.toFixed(1)), lowPeak: Number(weightedSummary.low.toFixed(1)), midPeak: Number(weightedSummary.mid.toFixed(1)), highPeak: Number(weightedSummary.high.toFixed(1)), spectrum: Array.from(metrics.spectrumDb || []) } }
+    const record = { id, name: `测试 ${now.toLocaleString()}`, notes: '', tags: [], createdAt: now.toLocaleString(), mode: this.data.mode, earSide: this.data.earSide, earVerified: this.data.mode === 'headset' ? false : true, source: this.data.source, platform: this.data.profile.platform, model: this.data.profile.model, sampleRate: 2000, originalSampleRate: 48000, fftSize: 2048, spectrumStartHz: metrics.spectrumStartHz, binSpacingHz: metrics.binSpacingHz, averageSeconds: this.data.averageSeconds, duration: file.duration, filePath: file.tempFilePath, fileSize: file.fileSize, fileFormat: file.fileFormat, playbackReady: file.playbackReady, conversionError: file.conversionError, interruptedReason: file.stopReason || 'user', weighting: this.data.weighting, weightingUnit: this.data.weightingUnit, summary: { rmsDb: Number(metrics.rmsDb.toFixed(1)), peakDb: Number(metrics.peakDb.toFixed(1)), peakFrequency: Math.round(metrics.peakFrequency), clipped: metrics.clipped, totalLevel: Number(weightedSummary.total.toFixed(1)), lowPeak: Number(weightedSummary.low.toFixed(1)), midPeak: Number(weightedSummary.mid.toFixed(1)), highPeak: Number(weightedSummary.high.toFixed(1)), spectrum: Array.from(metrics.spectrumDb || []) } }
     repo.save(record)
-    wx.redirectTo({ url: `/pages/record-detail/index?id=${id}` })
+    this.setData({ state: 'idle', recording: false, recordingFinalizing: false, recordings: recordingChoices() })
+    wx.showToast({ title: '录音已保存', icon: 'success', duration: 2000 })
+    if (file.stopReason === 'recording-user' || file.stopReason === 'recording-max') this.start()
   },
   present(metrics) {
     return this.presentSpectrum(metrics.spectrumDb || [], metrics.spectrumStartHz || 20, metrics.binSpacingHz || 1, metrics.rmsDb)
@@ -115,6 +118,12 @@ Page({
     this.setData({ spectrumAxis, spectrumLabel: spectrumAxis === 'log' ? '对数频率轴' : '线性频率轴' }, () => {
       if (this.latestMetrics) this.draw(this.latestMetrics)
     })
+  },
+  toggleSettings() { this.setData({ settingsOpen: !this.data.settingsOpen }) },
+  setAverageDuration(event) {
+    const averageSeconds = Math.max(1, Math.min(30, Math.round(Number(event.detail.value) || 3)))
+    capture.setAverageDuration(averageSeconds)
+    this.setData({ averageSeconds })
   },
   setYScaleMode(event) {
     this.setData({ yScaleMode: event.currentTarget.dataset.mode }, () => {
