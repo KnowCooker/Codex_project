@@ -11,9 +11,9 @@ class CaptureService {
     this.state = STATES.IDLE
     this.callbacks = {}
     this.sampleRate = 48000
-    this.analysisSampleRate = 2000
-    this.fftSize = 2048
-    this.analysisWindowSize = 1024
+    this.analysisSampleRate = 4000
+    this.fftSize = 4096
+    this.analysisWindowSize = 2048
     this.samples = new Float32Array(this.fftSize * 2)
     this.sampleCount = 0
     this.startedAt = 0
@@ -141,7 +141,7 @@ class CaptureService {
       this.dspWorkspace = {}
       this.spectrumAverage.reset()
       this.highPass = new HighPassFilter(this.sampleRate, 7)
-      this.decimator = new Decimator(this.sampleRate, this.analysisSampleRate)
+      this.decimator = new Decimator(this.sampleRate, this.analysisSampleRate, 1500, 129)
     }
     // Trigger WeChat's unified privacy dialog before requesting microphone
     // permission. The platform privacy guide must declare microphone/audio use.

@@ -14,7 +14,7 @@
   </view>
 
   <view class="chart-card">
-    <view class="spectrum-heading"><view><view class="chart-label">平均频谱 · 20–500 Hz · 过去 {{averageSeconds}} 秒 · {{weightingLabel}}</view><view class="chart-note">0.98 Hz/bin · 有效分辨率约 1.95 Hz · 512 ms 数据窗；频谱与指标均按功率平均，声压级未经设备校准。</view></view></view>
+    <view class="spectrum-heading"><view><view class="chart-label">平均频谱 · 20–{{maxFrequency}} Hz · 过去 {{averageSeconds}} 秒 · {{weightingLabel}}</view><view class="chart-note">0.98 Hz/bin · 有效分辨率约 1.95 Hz · 512 ms 数据窗；频谱与指标均按功率平均，声压级未经设备校准。</view></view></view>
     <view class="chart-shell" hidden="{{referencePickerOpen}}"><canvas id="spectrumCanvas" canvas-id="spectrum" class="chart spectrum-chart" width="{{canvasWidth}}" height="{{canvasHeight}}" style="height: {{canvasCssHeight}}px;"></canvas></view>
     <view class="spectrum-legend">
       <view><text class="line-swatch live-line"></text>{{averageSeconds}} 秒平均频谱</view>
@@ -28,6 +28,7 @@
     <view wx:if="{{settingsOpen}}" class="drawing-settings">
       <view class="setting-row"><text class="setting-label">计权</text><view class="setting-options"><button data-weighting="a" bindtap="setWeighting" class="axis-button {{weighting === 'a' ? 'active' : ''}}">A</button><button data-weighting="linear" bindtap="setWeighting" class="axis-button {{weighting === 'linear' ? 'active' : ''}}">线性</button></view></view>
       <view class="setting-row average-setting"><view><view class="setting-label">平均时长：{{averageSeconds}} 秒</view><view class="setting-hint">可调范围 1–30 秒，窗口越长曲线越稳定</view></view><slider class="average-slider" min="1" max="30" step="1" value="{{averageSeconds}}" bindchange="setAverageDuration" activeColor="#38b6ad" backgroundColor="#dfe8f4" block-size="18"/></view>
+      <view class="setting-row average-setting"><view><view class="setting-label">频率范围：20–{{maxFrequency}} Hz</view><view class="setting-hint">拖动设置横轴上限，最高 1000 Hz</view></view><slider class="average-slider" min="100" max="1000" step="50" value="{{maxFrequency}}" bindchange="setMaxFrequency" activeColor="#6772dc" backgroundColor="#dfe8f4" block-size="18"/></view>
       <view class="setting-row"><text class="setting-label">横轴</text><view class="setting-options"><button data-axis="log" bindtap="setSpectrumAxis" class="axis-button {{spectrumAxis === 'log' ? 'active' : ''}}">对数</button><button data-axis="linear" bindtap="setSpectrumAxis" class="axis-button {{spectrumAxis === 'linear' ? 'active' : ''}}">线性</button></view></view>
       <view class="setting-row"><text class="setting-label">纵轴</text><view class="setting-options"><button data-mode="auto" bindtap="setYScaleMode" class="scale-button {{yScaleMode === 'auto' ? 'active' : ''}}">自动</button><button data-mode="manual" bindtap="setYScaleMode" class="scale-button {{yScaleMode === 'manual' ? 'active' : ''}}">固定</button></view></view>
       <view wx:if="{{yScaleMode === 'manual'}}" class="range-inputs"><input type="text" value="{{manualMin}}" bindinput="setManualMin" placeholder="最小 {{weightingUnit}}"/><text>至</text><input type="text" value="{{manualMax}}" bindinput="setManualMax" placeholder="最大 {{weightingUnit}}"/><button bindtap="applyManualRange">应用</button></view>

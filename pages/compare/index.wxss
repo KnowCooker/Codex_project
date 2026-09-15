@@ -25,6 +25,8 @@
 .setting-options { display:flex; flex-shrink:0; gap:8rpx; }
 .option-button { min-width:72rpx; margin:0; padding:7rpx 12rpx; color:#526782; background:rgba(232,239,250,.78); font-size:21rpx; line-height:1.4; }
 .option-button.active { color:#087f78; outline:1rpx solid #45bdb5; background:rgba(196,247,237,.72); }
+.range-slider-setting { margin-bottom:14rpx; }
+.range-slider-setting slider { margin:8rpx 0 0; }
 .range-inputs { width:100%; display:flex; align-items:center; gap:10rpx; color:#718096; font-size:21rpx; }
 .range-inputs input { flex:1; min-width:0; padding:12rpx; border:1rpx solid rgba(123,148,184,.35); border-radius:10rpx; color:#334563; background:rgba(255,255,255,.70); text-align:center; }
 .range-inputs button { margin:0; padding:12rpx 18rpx; color:#fff; background:#38b6ad; font-size:21rpx; }

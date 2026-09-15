@@ -7,7 +7,7 @@
   </view>
   <view wx:if="{{warning}}" class="notice compare-warning">{{warning}}</view>
   <view class="chart-card">
-    <view class="chart-label">频谱叠加 · 20–500 Hz · {{weightingLabel}}</view>
+    <view class="chart-label">频谱叠加 · 20–{{maxFrequency}} Hz · {{weightingLabel}}</view>
     <view class="chart-shell"><canvas id="comparisonCanvas" canvas-id="comparison" class="chart" width="{{canvasWidth}}" height="{{canvasHeight}}" style="height:{{canvasCssHeight}}px;"></canvas></view>
     <view wx:if="{{tableRows.length}}" class="legend"><view wx:for="{{tableRows}}" wx:key="id"><text class="legend-line" style="background:{{item.color}};"></text>{{item.name}}</view></view>
     <view class="axis-caption"><text>纵轴：估计声压级 / {{weightingUnit}}</text><text>横轴：频率 / Hz</text></view>
@@ -15,6 +15,7 @@
     <view wx:if="{{settingsOpen}}" class="drawing-settings">
       <view class="setting-row"><text class="setting-label">计权</text><view class="setting-options"><button data-weighting="a" bindtap="setWeighting" class="option-button {{weighting === 'a' ? 'active' : ''}}">A</button><button data-weighting="linear" bindtap="setWeighting" class="option-button {{weighting === 'linear' ? 'active' : ''}}">线性</button></view></view>
       <view class="setting-row"><text class="setting-label">横轴</text><view class="setting-options"><button data-axis="log" bindtap="setSpectrumAxis" class="option-button {{spectrumAxis === 'log' ? 'active' : ''}}">对数</button><button data-axis="linear" bindtap="setSpectrumAxis" class="option-button {{spectrumAxis === 'linear' ? 'active' : ''}}">线性</button></view></view>
+      <view class="range-slider-setting"><view class="setting-label">频率范围：20–{{maxFrequency}} Hz</view><slider min="100" max="1000" step="50" value="{{maxFrequency}}" bindchange="setMaxFrequency" activeColor="#6772dc" backgroundColor="#dfe8f4" block-size="18"/></view>
       <view class="setting-row"><text class="setting-label">纵轴</text><view class="setting-options"><button data-mode="auto" bindtap="setYScaleMode" class="option-button {{yScaleMode === 'auto' ? 'active' : ''}}">自动</button><button data-mode="manual" bindtap="setYScaleMode" class="option-button {{yScaleMode === 'manual' ? 'active' : ''}}">固定</button></view></view>
       <view wx:if="{{yScaleMode === 'manual'}}" class="range-inputs"><input type="text" value="{{manualMin}}" bindinput="setManualMin" placeholder="最小 {{weightingUnit}}"/><text>至</text><input type="text" value="{{manualMax}}" bindinput="setManualMax" placeholder="最大 {{weightingUnit}}"/><button bindtap="applyManualRange">应用</button></view>
     </view>

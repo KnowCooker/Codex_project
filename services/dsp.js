@@ -1,14 +1,17 @@
 const { fft, hann } = require('../utils/fft')
 
 const DEFAULT_MIN_FREQUENCY = 20
-const DEFAULT_MAX_FREQUENCY = 500
+const DEFAULT_MAX_FREQUENCY = 1000
 const hannCache = {}
+const hannSumCache = {}
 
 function getHannWindow(size) {
   if (!hannCache[size]) {
     const window = new Float32Array(size)
-    for (let i = 0; i < size; i++) window[i] = hann(i, size)
+    let sum = 0
+    for (let i = 0; i < size; i++) { window[i] = hann(i, size); sum += window[i] }
     hannCache[size] = window
+    hannSumCache[size] = sum
   }
   return hannCache[size]
 }
@@ -26,12 +29,13 @@ function makeLowPassTaps(sampleRate, cutoffHz, tapCount = 97) {
   return taps
 }
 
-// FIR anti-alias filter evaluated only at decimation instants. 48 kHz -> 2 kHz preserves 20–500 Hz analysis.
+// FIR anti-alias filter evaluated only at decimation instants. 48 kHz -> 4 kHz
+// leaves transition bandwidth above the 20–1000 Hz analysis range.
 class Decimator {
-  constructor(inputRate, outputRate = 2000, cutoffHz = 800) {
+  constructor(inputRate, outputRate = 4000, cutoffHz = 1500, tapCount = 129) {
     this.ratio = Math.max(1, Math.round(inputRate / outputRate))
     this.outputRate = inputRate / this.ratio
-    this.taps = makeLowPassTaps(inputRate, Math.min(cutoffHz, this.outputRate * .42))
+    this.taps = makeLowPassTaps(inputRate, Math.min(cutoffHz, this.outputRate * .42), tapCount)
     this.history = new Float32Array(this.taps.length)
     this.cursor = 0; this.phase = 0
     this.outputBuffer = new Float32Array(256)
@@ -98,6 +102,7 @@ function analyse(samples, sampleRate, fftSize, options = {}) {
   workspace.spectrumInput = spectrumInput
   spectrumInput.fill(0)
   const window = getHannWindow(analysisLength)
+  const amplitudeScale = Math.max(1e-12, hannSumCache[analysisLength] / 2)
   for (let i = 0; i < analysisLength; i++) spectrumInput[i] = samples[offset + i] * window[i]
   const complexLength = fftSize * 2
   const complex = workspace.complex && workspace.complex.length === complexLength ? workspace.complex : new Float32Array(complexLength)
@@ -111,16 +116,19 @@ function analyse(samples, sampleRate, fftSize, options = {}) {
   let maxValue = -Infinity, peakBin = 0
   for (let i = 1; i < fftSize / 2; i++) {
     const re = complex[2 * i], im = complex[2 * i + 1]
-    const db = 20 * Math.log10(Math.max(1e-7, Math.sqrt(re * re + im * im) / (analysisLength / 2)))
+    const db = 20 * Math.log10(Math.max(1e-7, Math.sqrt(re * re + im * im) / amplitudeScale))
     const limitedDb = Math.max(-100, db)
-    if (i >= minimumBin && i <= maximumBin) spectrumDb[i - minimumBin] = limitedDb
-    if (limitedDb > maxValue) { maxValue = limitedDb; peakBin = i }
+    if (i >= minimumBin && i <= maximumBin) {
+      spectrumDb[i - minimumBin] = limitedDb
+      if (limitedDb > maxValue) { maxValue = limitedDb; peakBin = i }
+    }
   }
   const range = autoDbRange(spectrumDb)
   return {
     rms, rmsDb: dbfs(rms), peak, peakDb: dbfs(peak), clipped,
     peakFrequency: peakBin * sampleRate / fftSize,
     spectrumPeakDb: maxValue, spectrumDb, spectrumStartHz: minimumBin * sampleRate / fftSize, spectrumRange: range,
+    sampleRate, fftSize,
     analysisWindowMs: analysisLength / sampleRate * 1000,
     binSpacingHz: sampleRate / fftSize,
     effectiveResolutionHz: sampleRate / analysisLength

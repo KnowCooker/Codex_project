@@ -1,4 +1,4 @@
-function hann(index, size) { return .5 * (1 - Math.cos(2 * Math.PI * index / (size - 1))) }
+function hann(index, size) { return size <= 1 ? 1 : .5 * (1 - Math.cos(2 * Math.PI * index / (size - 1))) }
 
 const twiddleCache = {}
 
@@ -20,6 +20,7 @@ function getTwiddles(size) {
 // Iterative radix-2 FFT; returns interleaved real/imaginary values.
 function fft(input, output) {
   const n = input.length
+  if (n < 2 || (n & (n - 1)) !== 0) throw new RangeError('FFT 长度必须是大于等于 2 的 2 次幂')
   const out = output && output.length === n * 2 ? output : new Float32Array(n * 2)
   const twiddles = getTwiddles(n)
   for (let i = 0, j = 0; i < n; i++) {

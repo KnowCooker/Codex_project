@@ -2,16 +2,32 @@ const repo = require('../../services/recording-repository')
 const { getWeightingOffsets, summarizeSpectrum, spectrumRange, valueAt } = require('../../services/weighting')
 
 const MIN_FREQUENCY = 20
-const MAX_FREQUENCY = 500
+const ANALYSIS_MAX_FREQUENCY = 1000
 const MAX_SELECTION = 8
 const COLORS = ['#6772dc', '#e28a43', '#1fa69d', '#c9566c', '#7d5cbb', '#5b87b2', '#a57830', '#4f9666']
-const LOG_TICKS = [20, 30, 50, 70, 100, 200, 300, 500]
-const LINEAR_TICKS = [20, 100, 200, 300, 400, 500]
 const SPECTRUM_BANDS = [
   { min: 20, max: 60, color: 'rgba(88, 156, 235, .13)' },
   { min: 70, max: 150, color: 'rgba(65, 184, 139, .12)' },
   { min: 160, max: 240, color: 'rgba(241, 164, 74, .13)' }
 ]
+function frequencyTicks(axis, maximum) {
+  if (axis === 'log') {
+    const ticks = [20, 50, 100, 200, 500, 1000].filter(value => value <= maximum)
+    if (ticks[ticks.length - 1] !== maximum) ticks.push(maximum)
+    return ticks
+  }
+  const targetStep = (maximum - MIN_FREQUENCY) / 5
+  const step = [20, 50, 100, 200].find(value => value >= targetStep) || 200
+  const ticks = [MIN_FREQUENCY]
+  for (let value = Math.ceil(MIN_FREQUENCY / step) * step; value < maximum; value += step) if (value > MIN_FREQUENCY) ticks.push(value)
+  if (ticks[ticks.length - 1] !== maximum) ticks.push(maximum)
+  return ticks
+}
+function visibleSeries(values, offsets, startHz, binSpacingHz, maximum) {
+  const count = Math.max(0, Math.min(values.length, Math.floor((maximum - startHz) / binSpacingHz) + 1))
+  const slice = source => source && (source.subarray ? source.subarray(0, count) : source.slice(0, count))
+  return { values: slice(values), offsets: slice(offsets), count }
+}
 
 function canCompare(record) {
   return Boolean(record && record.filePath && record.summary && Array.isArray(record.summary.spectrum) && record.summary.spectrum.length)
@@ -20,17 +36,17 @@ function canCompare(record) {
 function spectrumMetadata(record) {
   const sampleRate = Number(record.sampleRate) || 2000
   const fftSize = Number(record.fftSize) || 2048
-  const binSpacingHz = sampleRate / fftSize
+  const binSpacingHz = Number(record.binSpacingHz) || sampleRate / fftSize
   return {
     binSpacingHz,
-    spectrumStartHz: Number(record.spectrumStartHz) || Math.ceil(MIN_FREQUENCY * fftSize / sampleRate) * binSpacingHz
+    spectrumStartHz: Number(record.spectrumStartHz) || Math.ceil(MIN_FREQUENCY / binSpacingHz) * binSpacingHz
   }
 }
 
 Page({
   data: {
     records: [], selectedCount: 0, tableRows: [], warning: '', settingsOpen: false,
-    weighting: 'linear', weightingLabel: '线性计权', weightingUnit: 'dB', spectrumAxis: 'log',
+    weighting: 'linear', weightingLabel: '线性计权', weightingUnit: 'dB', spectrumAxis: 'log', maxFrequency: 500,
     yScaleMode: 'manual', manualMin: '-80', manualMax: '-20', manualRange: { min: -80, max: -20 },
     canvasWidth: 320, canvasHeight: 300, canvasCssHeight: 300
   },
@@ -68,6 +84,7 @@ Page({
         sampleRate: Number(record.sampleRate) || 2000, fftSize: Number(record.fftSize) || 2048,
         averageSeconds: record.averageSeconds,
         averageLabel: record.averageSeconds ? `${record.averageSeconds} 秒` : '旧记录',
+        maxAvailableFrequency: metadata.spectrumStartHz + (values.length - 1) * metadata.binSpacingHz,
         totalLevel: summary.total.toFixed(1)
       }
     }).filter(Boolean)
@@ -81,6 +98,7 @@ Page({
       const mismatched = this.series.some(item => item.sampleRate !== first.sampleRate || item.fftSize !== first.fftSize || item.averageSeconds !== first.averageSeconds)
       warning = mismatched ? '所选录音的采样率、FFT 或平均时长不完全一致，可叠加观察，但不宜直接比较绝对幅值。' : '这些曲线来自顺序测量，不是同步多通道分析。'
     }
+    if (this.series.some(item => item.maxAvailableFrequency + item.binSpacingHz * 1.1 < this.data.maxFrequency)) warning += `${warning ? ' ' : ''}部分旧录音没有覆盖当前横轴的全部频率范围。`
     this.setData({
       records: this.allRecords.map(record => ({ id: record.id, name: record.name, createdAt: record.createdAt, mode: record.mode, selected: selected.includes(record.id), averageLabel: record.averageSeconds ? `${record.averageSeconds} 秒平均` : '平均时长未记录' })),
       selectedCount: this.series.length,
@@ -94,6 +112,10 @@ Page({
     this.setData(weighting === 'a' ? { weighting, weightingLabel: 'A 计权', weightingUnit: 'dBA' } : { weighting, weightingLabel: '线性计权', weightingUnit: 'dB' }, () => this.updateView())
   },
   setSpectrumAxis(event) { this.setData({ spectrumAxis: event.currentTarget.dataset.axis }, () => this.draw()) },
+  setMaxFrequency(event) {
+    const maxFrequency = Math.max(100, Math.min(ANALYSIS_MAX_FREQUENCY, Math.round(Number(event.detail.value) || 500)))
+    this.setData({ maxFrequency }, () => this.updateView())
+  },
   setYScaleMode(event) { this.setData({ yScaleMode: event.currentTarget.dataset.mode }, () => this.draw()) },
   setManualMin(event) { this.setData({ manualMin: event.detail.value }) },
   setManualMax(event) { this.setData({ manualMax: event.detail.value }) },
@@ -113,17 +135,18 @@ Page({
       this.setData({ canvasWidth: width, canvasHeight: height, canvasCssHeight: height }, () => this.draw())
     }).exec()
   },
-  drawCurve(ctx, series, offsets, projectX, projectY, plotWidth) {
+  drawCurve(ctx, series, offsets, maximum, projectX, projectY, plotWidth) {
     const values = series.values
-    const groupSize = Math.max(1, Math.ceil(values.length / Math.max(120, Math.floor(plotWidth))))
+    const visibleLength = Math.max(0, Math.min(values.length, Math.floor((maximum - series.spectrumStartHz) / series.binSpacingHz) + 1))
+    const groupSize = Math.max(1, Math.ceil(visibleLength / Math.max(120, Math.floor(plotWidth))))
     ctx.setStrokeStyle(series.color); ctx.setLineWidth(2.2); ctx.beginPath()
     let pointIndex = 0
-    for (let start = 0; start < values.length; start += groupSize) {
-      const end = Math.min(values.length, start + groupSize)
+    for (let start = 0; start < visibleLength; start += groupSize) {
+      const end = Math.min(visibleLength, start + groupSize)
       let selected = start
       for (let index = start + 1; index < end; index++) if (valueAt(values, offsets, index) > valueAt(values, offsets, selected)) selected = index
       const frequency = series.spectrumStartHz + selected * series.binSpacingHz
-      if (frequency < MIN_FREQUENCY || frequency > MAX_FREQUENCY) continue
+      if (frequency < MIN_FREQUENCY || frequency > maximum) continue
       const x = projectX(frequency)
       const y = projectY(valueAt(values, offsets, selected))
       if (pointIndex++) ctx.lineTo(x, y); else ctx.moveTo(x, y)
@@ -134,18 +157,19 @@ Page({
     const ctx = wx.createCanvasContext('comparison', this)
     const width = this.chartSize ? this.chartSize.width : this.data.canvasWidth
     const height = this.chartSize ? this.chartSize.height : this.data.canvasHeight
+    const maxFrequency = this.data.maxFrequency
     const fontSize = Math.max(10, Math.min(13, width / 27))
     const plotted = (this.series || []).map(series => ({ series, offsets: getWeightingOffsets(series.values.length, series.spectrumStartHz, series.binSpacingHz, this.data.weighting) }))
-    const autoRange = spectrumRange(plotted.map(item => ({ values: item.series.values, offsets: item.offsets })))
+    const autoRange = spectrumRange(plotted.map(item => visibleSeries(item.series.values, item.offsets, item.series.spectrumStartHz, item.series.binSpacingHz, maxFrequency)))
     const range = this.data.yScaleMode === 'manual' ? this.data.manualRange : autoRange
     const plot = { left: Math.max(48, fontSize * 4), right: width - 10, top: 14, bottom: height - Math.max(38, fontSize * 3.2) }
     const plotWidth = plot.right - plot.left
     const plotHeight = plot.bottom - plot.top
-    const projectX = frequency => plot.left + (this.data.spectrumAxis === 'log' ? Math.log(frequency / MIN_FREQUENCY) / Math.log(MAX_FREQUENCY / MIN_FREQUENCY) : (frequency - MIN_FREQUENCY) / (MAX_FREQUENCY - MIN_FREQUENCY)) * plotWidth
+    const projectX = frequency => plot.left + (this.data.spectrumAxis === 'log' ? Math.log(frequency / MIN_FREQUENCY) / Math.log(maxFrequency / MIN_FREQUENCY) : (frequency - MIN_FREQUENCY) / (maxFrequency - MIN_FREQUENCY)) * plotWidth
     const projectY = db => plot.top + (range.max - Math.max(range.min, Math.min(range.max, db))) / (range.max - range.min) * plotHeight
     ctx.setFillStyle('#edf3fa'); ctx.fillRect(0, 0, width, height)
     ctx.setFillStyle('#f8fbff'); ctx.fillRect(plot.left, plot.top, plotWidth, plotHeight)
-    SPECTRUM_BANDS.forEach(band => { ctx.setFillStyle(band.color); ctx.fillRect(projectX(band.min), plot.top, projectX(band.max) - projectX(band.min), plotHeight) })
+    SPECTRUM_BANDS.forEach(band => { if (band.min >= maxFrequency) return; ctx.setFillStyle(band.color); ctx.fillRect(projectX(band.min), plot.top, projectX(Math.min(band.max, maxFrequency)) - projectX(band.min), plotHeight) })
     ctx.setStrokeStyle('#dbe6f3'); ctx.setLineWidth(1); ctx.setLineDash([6, 5]); ctx.setFillStyle('#60718d'); ctx.setFontSize(fontSize)
     for (let index = 0; index <= 5; index++) {
       const y = plot.top + index / 5 * plotHeight
@@ -153,7 +177,7 @@ Page({
       const label = Math.abs(range.max - range.min) < 10 ? value.toFixed(1) : value.toFixed(0)
       ctx.beginPath(); ctx.moveTo(plot.left, y); ctx.lineTo(plot.right, y); ctx.stroke(); ctx.fillText(label, plot.left - label.length * fontSize * .58 - 8, y + fontSize * .35)
     }
-    const ticks = this.data.spectrumAxis === 'log' ? LOG_TICKS : LINEAR_TICKS
+    const ticks = frequencyTicks(this.data.spectrumAxis, maxFrequency)
     ticks.forEach(frequency => {
       const x = projectX(frequency); const label = String(frequency); const labelWidth = label.length * fontSize * .55
       ctx.beginPath(); ctx.moveTo(x, plot.top); ctx.lineTo(x, plot.bottom); ctx.stroke(); ctx.fillText(label, Math.max(plot.left - 2, Math.min(plot.right - labelWidth, x - labelWidth / 2)), plot.bottom + fontSize * 1.55)
@@ -162,7 +186,7 @@ Page({
     ctx.fillText('频率 / Hz', (plot.left + plot.right) / 2 - fontSize * 2.7, height - 5)
     ctx.save(); ctx.translate(fontSize, (plot.top + plot.bottom) / 2 + fontSize * 4.5); ctx.rotate(-Math.PI / 2); ctx.fillText(`估计声压级 / ${this.data.weightingUnit}`, 0, 0); ctx.restore()
     ctx.save(); ctx.beginPath(); ctx.rect(plot.left, plot.top, plotWidth, plotHeight); ctx.clip()
-    plotted.forEach(item => this.drawCurve(ctx, item.series, item.offsets, projectX, projectY, plotWidth))
+    plotted.forEach(item => this.drawCurve(ctx, item.series, item.offsets, maxFrequency, projectX, projectY, plotWidth))
     ctx.restore(); ctx.draw()
   }
 })

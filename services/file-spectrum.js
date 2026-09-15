@@ -2,9 +2,10 @@ const { parsePcm16, analyse, HighPassFilter, Decimator } = require('./dsp')
 
 const HEADER_READ_SIZE = 4096
 const FILE_CHUNK_SIZE = 256 * 1024
-const FFT_SIZE = 2048
-const WINDOW_SIZE = 1024
-const HOP_SIZE = 512
+const ANALYSIS_RATE = 4000
+const FFT_SIZE = 4096
+const WINDOW_SIZE = 2048
+const HOP_SIZE = 1024
 
 function callFs(fs, method, options) {
   return new Promise((resolve, reject) => fs[method]({ ...options, success: resolve, fail: reject }))
@@ -52,7 +53,7 @@ async function averageSpectrumFromWav(filePath, options = {}) {
   const header = parseWavHeader(headerResult.data)
   const dataSize = Math.min(header.dataSize, fileSize - header.dataOffset)
   const highPass = new HighPassFilter(header.sampleRate, 7)
-  const decimator = new Decimator(header.sampleRate, 2000)
+  const decimator = new Decimator(header.sampleRate, ANALYSIS_RATE, 1500, 129)
   const analysisRate = decimator.outputRate
   const window = new Float32Array(WINDOW_SIZE)
   const workspace = {}
