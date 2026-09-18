@@ -14,12 +14,13 @@ function aWeightingDb(frequency) {
   return 20 * Math.log10(Math.max(1e-12, numerator / denominator)) + 2
 }
 
-function getWeightingOffsets(length, startHz, binSpacingHz, weighting) {
-  if (weighting !== 'a') return null
-  const key = `${length}:${startHz}:${binSpacingHz}`
+function getWeightingOffsets(length, startHz, binSpacingHz, weighting, calibrationDb = 0) {
+  const calibration = Number(calibrationDb) || 0
+  if (weighting !== 'a' && calibration === 0) return null
+  const key = `${length}:${startHz}:${binSpacingHz}:${weighting}:${calibration}`
   if (!offsetCache[key]) {
     const offsets = new Float32Array(length)
-    for (let index = 0; index < length; index++) offsets[index] = aWeightingDb(startHz + index * binSpacingHz)
+    for (let index = 0; index < length; index++) offsets[index] = (weighting === 'a' ? aWeightingDb(startHz + index * binSpacingHz) : 0) + calibration
     offsetCache[key] = offsets
   }
   return offsetCache[key]
@@ -27,8 +28,9 @@ function getWeightingOffsets(length, startHz, binSpacingHz, weighting) {
 
 function valueAt(values, offsets, index) { return values[index] + (offsets ? offsets[index] : 0) }
 
-function summarizeSpectrum(values, startHz, binSpacingHz, rmsDb, weighting) {
-  const offsets = getWeightingOffsets(values.length, startHz, binSpacingHz, weighting)
+function summarizeSpectrum(values, startHz, binSpacingHz, rmsDb, weighting, calibrationDb = 0) {
+  const calibration = Number(calibrationDb) || 0
+  const offsets = getWeightingOffsets(values.length, startHz, binSpacingHz, weighting, calibration)
   const peaks = { low: -100, mid: -100, high: -100 }
   let rawPower = 0; let weightedPower = 0
   for (let index = 0; index < values.length; index++) {
@@ -41,8 +43,8 @@ function summarizeSpectrum(values, startHz, binSpacingHz, rmsDb, weighting) {
       if (frequency >= band.min && frequency <= band.max && weightedDb > peaks[band.key]) peaks[band.key] = weightedDb
     }
   }
-  const weightingDelta = weighting === 'a' && rawPower > 0 ? 10 * Math.log10(Math.max(1e-12, weightedPower / rawPower)) : 0
-  return { total: rmsDb + weightingDelta, low: peaks.low, mid: peaks.mid, high: peaks.high }
+  const weightingDelta = weighting === 'a' && rawPower > 0 ? 10 * Math.log10(Math.max(1e-12, weightedPower / rawPower)) - calibration : 0
+  return { total: rmsDb + weightingDelta + calibration, low: peaks.low, mid: peaks.mid, high: peaks.high }
 }
 
 function spectrumRange(series) {

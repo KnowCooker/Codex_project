@@ -2,6 +2,7 @@ const { parsePcm16, analyse, HighPassFilter, Decimator } = require('./dsp')
 const { requestedAudioSource } = require('./compatibility')
 const { pcmFileToWav } = require('./wav-file')
 const { SpectrumAverage } = require('./spectrum-average')
+const { SOURCE_SAMPLE_RATE, ANALYSIS_SAMPLE_RATE, FFT_SIZE, WINDOW_SIZE, HOP_SIZE, DECIMATOR_CUTOFF_HZ, DECIMATOR_TAP_COUNT } = require('./analysis-config')
 
 const STATES = { IDLE: 'idle', REQUESTING: 'requesting', CHECKING: 'checking', ANALYSING: 'analysing', PAUSED: 'paused', STOPPING: 'stopping' }
 
@@ -10,30 +11,44 @@ class CaptureService {
     this.recorder = wx.getRecorderManager()
     this.state = STATES.IDLE
     this.callbacks = {}
-    this.sampleRate = 48000
-    this.analysisSampleRate = 4000
-    this.fftSize = 4096
-    this.analysisWindowSize = 2048
+    this.sampleRate = SOURCE_SAMPLE_RATE
+    this.analysisSampleRate = ANALYSIS_SAMPLE_RATE
+    this.fftSize = FFT_SIZE
+    this.analysisWindowSize = WINDOW_SIZE
+    this.analysisHopSize = HOP_SIZE
     this.samples = new Float32Array(this.fftSize * 2)
     this.sampleCount = 0
     this.startedAt = 0
     this.mode = 'phone'
-    this.spectrumAverage = new SpectrumAverage(3)
+    this.operationId = 0
+    this.recorderActive = false
+    this.spectrumAverage = new SpectrumAverage(3, { sampleRate: this.analysisSampleRate, windowSize: this.analysisWindowSize, hopSize: this.analysisHopSize })
     this.bind()
   }
   bind() {
     this.recorder.onFrameRecorded(({ frameBuffer }) => {
       if (this.state !== STATES.ANALYSING) return
       try {
-        const frame = this.decimator.process(this.highPass.process(parsePcm16(frameBuffer)))
+        // Recorder frames are normally a few KiB. Bound unexpected oversized
+        // headset frames so one native callback cannot monopolize the JS thread.
+        const MAX_FRAME_BYTES = 128 * 1024
+        const boundedBuffer = frameBuffer.byteLength > MAX_FRAME_BYTES ? frameBuffer.slice(frameBuffer.byteLength - MAX_FRAME_BYTES) : frameBuffer
+        const frame = this.decimator.process(this.highPass.process(parsePcm16(boundedBuffer)))
         if (!frame.length) return
         this.appendSamples(frame)
-        // 4 KB PCM frames at 48 kHz arrive about every 43 ms. Analyse each frame
-        // once the 512 ms data window is full for a practical 20-24 FPS update rate.
-        if (Date.now() - this.lastAnalysisAt < 40 || this.sampleCount < this.analysisWindowSize) return
+        if (!this.analysisReady) {
+          if (this.sampleCount < this.analysisWindowSize) return
+          this.analysisReady = true
+          this.samplesSinceAnalysis = 0
+        } else {
+          this.samplesSinceAnalysis += frame.length
+          if (this.samplesSinceAnalysis < this.analysisHopSize) return
+          this.samplesSinceAnalysis -= this.analysisHopSize
+        }
         this.lastAnalysisAt = Date.now()
         const rawResult = analyse(this.samples.subarray(0, this.sampleCount), this.analysisSampleRate, this.fftSize, { windowSize: this.analysisWindowSize, workspace: this.dspWorkspace })
-        const result = this.spectrumAverage.push(rawResult, this.lastAnalysisAt)
+        rawResult.frameHopMs = this.analysisHopSize / this.analysisSampleRate * 1000
+        const result = this.spectrumAverage.push(rawResult)
         if (result && this.state === STATES.ANALYSING) this.callbacks.data && this.callbacks.data(result)
       } catch (error) { this.callbacks.error && this.callbacks.error('PCM 帧无法解析：' + error.message) }
     })
@@ -43,10 +58,10 @@ class CaptureService {
     this.recorder.onInterruptionBegin(() => {
       if (this.mode === 'headset') this.handleHeadsetRouteLost('耳机音频路由已中断，测试已停止。')
     })
-    this.recorder.onError(error => { clearTimeout(this.segmentTimer); this.stopHeadsetGuard(); this.state = STATES.IDLE; this.callbacks.state && this.callbacks.state(this.state, { recording: false, finalizing: false }); this.callbacks.error && this.callbacks.error(error.errMsg || '录音器异常') })
+    this.recorder.onError(error => { clearTimeout(this.segmentTimer); this.recorderActive = false; this.state = STATES.IDLE; this.callbacks.state && this.callbacks.state(this.state, { recording: false, finalizing: false }); this.callbacks.error && this.callbacks.error(error.errMsg || '录音器异常') })
     this.recorder.onStop(result => {
       clearTimeout(this.segmentTimer)
-      this.stopHeadsetGuard()
+      this.recorderActive = false
       const duration = Number.isFinite(result.duration) ? result.duration : Math.max(0, Date.now() - this.startedAt)
       const savedRecording = this.recordingEnabled
       const restartAsRecording = this.pendingRecording
@@ -62,36 +77,6 @@ class CaptureService {
       this.finishStoppedFile(result, { duration, recorded: savedRecording, stopReason })
     })
   }
-  getAvailableAudioSources() {
-    return new Promise((resolve, reject) => wx.getAvailableAudioSources({ success: result => resolve(result.audioSources || []), fail: reject }))
-  }
-  async prepareHeadsetRoute(platform) {
-    if (this.mode !== 'headset') return
-    let sources
-    try { sources = await this.getAvailableAudioSources() } catch (_) {
-      this.state = STATES.IDLE
-      throw new Error('无法确认耳机输入状态，请重新连接耳机后再试。')
-    }
-    this.headsetSourceObserved = sources.includes(platform === 'iOS' ? 'headsetMic' : 'mic')
-    if (platform === 'iOS' && !this.headsetSourceObserved) {
-      this.state = STATES.IDLE
-      throw new Error('未检测到可用的耳机麦克风。请先连接耳机，并确认微信已切换到耳机输入。')
-    }
-  }
-  startHeadsetGuard() {
-    this.stopHeadsetGuard()
-    if (this.mode !== 'headset' || !this.headsetSourceObserved) return
-    this.routeTimer = setInterval(() => {
-      if (this.routeCheckInFlight || ![STATES.ANALYSING, STATES.PAUSED].includes(this.state)) return
-      this.routeCheckInFlight = true
-      this.getAvailableAudioSources().then(sources => {
-        const expected = this.startOptions.platform === 'iOS' ? 'headsetMic' : 'mic'
-        if (!sources.includes(expected)) this.handleHeadsetRouteLost('耳机麦克风已断开，测试已停止，未切换到手机麦克风。')
-        this.routeCheckInFlight = false
-      }, () => { this.routeCheckInFlight = false })
-    }, 800)
-  }
-  stopHeadsetGuard() { clearInterval(this.routeTimer); this.routeTimer = null; this.routeCheckInFlight = false }
   handleHeadsetRouteLost(message) {
     if (this.mode !== 'headset' || ![STATES.ANALYSING, STATES.PAUSED].includes(this.state)) return
     this.callbacks.routeLost && this.callbacks.routeLost(message)
@@ -105,6 +90,9 @@ class CaptureService {
       recorded: details.recorded,
       stopReason: details.stopReason,
       fileFormat: details.recorded ? 'pcm' : '',
+      sampleRate: this.sampleRate,
+      channels: 1,
+      bitsPerSample: 16,
       playbackReady: false,
       conversionError: ''
     }
@@ -134,31 +122,48 @@ class CaptureService {
   setAverageDuration(seconds) { return this.spectrumAverage.setSeconds(seconds) }
   async start({ mode, platform, earSide = 'auto', recording = false, preserveAnalysisState = false }) {
     if (this.state !== STATES.IDLE) throw new Error('当前采集尚未结束')
+    const operationId = ++this.operationId
     this.state = STATES.REQUESTING; this.mode = mode
     this.startOptions = { mode, platform, earSide }; this.recordingEnabled = recording; this.lastAnalysisAt = 0
     if (!preserveAnalysisState) {
       this.samples = new Float32Array(this.fftSize * 2); this.sampleCount = 0
+      this.analysisReady = false; this.samplesSinceAnalysis = 0
       this.dspWorkspace = {}
       this.spectrumAverage.reset()
       this.highPass = new HighPassFilter(this.sampleRate, 7)
-      this.decimator = new Decimator(this.sampleRate, this.analysisSampleRate, 1500, 129)
+      this.decimator = new Decimator(this.sampleRate, this.analysisSampleRate, DECIMATOR_CUTOFF_HZ, DECIMATOR_TAP_COUNT)
     }
     // Trigger WeChat's unified privacy dialog before requesting microphone
     // permission. The platform privacy guide must declare microphone/audio use.
     if (wx.requirePrivacyAuthorize) {
       await new Promise((resolve, reject) => wx.requirePrivacyAuthorize({ success: resolve, fail: reject }))
     }
+    if (operationId !== this.operationId) throw new Error('采集启动已取消')
     await new Promise((resolve, reject) => wx.authorize({ scope: 'scope.record', success: resolve, fail: reject }))
-    await this.prepareHeadsetRoute(platform)
+    if (operationId !== this.operationId) throw new Error('采集启动已取消')
+    // Do not call getAvailableAudioSources here or poll it while recording.
+    // On some iOS/WeChat combinations that native route query blocks the UI.
+    // Request headsetMic directly and rely on recorder errors, pause and audio
+    // interruption callbacks to report an unavailable or disconnected route.
     this.state = STATES.CHECKING
-    this.recorder.start({
-      duration: 30000, sampleRate: this.sampleRate, numberOfChannels: 1,
-      encodeBitRate: 96000, format: 'PCM', frameSize: 4,
-      audioSource: requestedAudioSource(mode, platform)
-    })
+    try {
+      this.recorder.start({
+        duration: 30000, sampleRate: this.sampleRate, numberOfChannels: 1,
+        encodeBitRate: 96000, format: 'PCM', frameSize: 4,
+        audioSource: requestedAudioSource(mode, platform)
+      })
+      this.recorderActive = true
+    } catch (error) {
+      this.state = STATES.IDLE
+      this.recorderActive = false
+      throw error
+    }
+    if (operationId !== this.operationId) {
+      this.recorder.stop()
+      throw new Error('采集启动已取消')
+    }
     this.startedAt = Date.now(); this.earSide = earSide; this.state = STATES.ANALYSING
     this.segmentTimer = setTimeout(() => this.stop(recording ? 'recording-max' : 'analysis-segment'), 30000)
-    this.startHeadsetGuard()
     this.callbacks.state && this.callbacks.state(this.state, { recording })
   }
   pause() {
@@ -181,10 +186,19 @@ class CaptureService {
     this.stop('recording-boundary')
   }
   stop(reason = 'user') {
-    if (![STATES.ANALYSING, STATES.PAUSED].includes(this.state)) return
-    clearTimeout(this.segmentTimer); this.stopHeadsetGuard(); this.state = STATES.STOPPING; this.stopReason = reason
+    if ([STATES.IDLE, STATES.STOPPING].includes(this.state)) return
+    ++this.operationId
+    clearTimeout(this.segmentTimer)
+    if ([STATES.REQUESTING, STATES.CHECKING].includes(this.state) && !this.recorderActive) {
+      this.state = STATES.IDLE
+      this.stopReason = reason
+      this.callbacks.state && this.callbacks.state(this.state, { recording: false, finalizing: false })
+      return
+    }
+    this.state = STATES.STOPPING; this.stopReason = reason
     this.callbacks.state && this.callbacks.state(this.state, { recording: this.recordingEnabled, finalizing: this.recordingEnabled })
-    this.recorder.stop()
+    if (this.recorderActive) this.recorder.stop()
+    else this.state = STATES.IDLE
   }
 }
 module.exports = { CaptureService, STATES }

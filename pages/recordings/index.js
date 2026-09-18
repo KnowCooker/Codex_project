@@ -1,6 +1,8 @@
 const repo = require('../../services/recording-repository')
 
 function present(record) {
+  const formatLabel = record.playbackReady || record.fileFormat === 'wav' || /\.wav$/i.test(record.filePath || '') ? 'WAV' : 'PCM'
+  const calibrationDb = repo.recordCalibrationDb(record)
   return {
     id: record.id,
     name: record.name,
@@ -8,9 +10,11 @@ function present(record) {
     offset: 0,
     createdAt: record.createdAt,
     mode: record.mode,
+    sampleRateLabel: `${formatLabel} ${repo.wavSampleRate(record)} Hz`,
+    calibrationLabel: `${calibrationDb > 0 ? '+' : ''}${calibrationDb.toFixed(1)} dB`,
     durationLabel: `${(Math.max(0, record.duration || 0) / 1000).toFixed(1)} 秒`,
     fileSizeLabel: record.fileSize ? `${(record.fileSize / 1024 / 1024).toFixed(2)} MB` : '大小未知',
-    formatLabel: record.playbackReady || record.fileFormat === 'wav' || /\.wav$/i.test(record.filePath || '') ? 'WAV' : 'PCM'
+    formatLabel
   }
 }
 
@@ -20,7 +24,10 @@ Page({
     const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync()
     this.actionWidth = 240 / 750 * info.windowWidth
   },
-  onShow() { this.refresh() },
+  onShow() {
+    if (typeof this.getTabBar === 'function' && this.getTabBar()) this.getTabBar().setData({ selected: 1 })
+    this.refresh()
+  },
   refresh() { this.setData({ recordings: repo.list().filter(item => item.filePath).map(present) }) },
   setOffset(id, offset, closeOthers = false) {
     const updates = {}
@@ -64,7 +71,6 @@ Page({
     if (item && item.offset) return this.setOffset(id, 0)
     wx.navigateTo({ url: `/pages/record-detail/index?id=${id}` })
   },
-  openCompare() { wx.navigateTo({ url: '/pages/compare/index' }) },
   beginRename(event) {
     const item = this.data.recordings.find(record => record.id === event.currentTarget.dataset.id)
     if (item) this.setData({ renameOpen: true, renameId: item.id, renameValue: item.name })

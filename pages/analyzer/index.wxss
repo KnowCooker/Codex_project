@@ -46,6 +46,9 @@
 .setting-row { display:flex; align-items:center; justify-content:space-between; gap:16rpx; margin-bottom:14rpx; }
 .setting-label { color:#526782; font-size:22rpx; }
 .setting-hint { margin-top:5rpx; color:#8492a7; font-size:18rpx; }
+.calibration-label { margin-top:18rpx; }
+.calibration-input { margin-top:8rpx; }
+.frequency-range-inputs { margin-bottom:14rpx; }
 .setting-options { display:flex; flex-shrink:0; gap:8rpx; }
 .setting-options .axis-button { min-width:72rpx; }
 .average-setting { display:block; }

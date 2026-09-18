@@ -1,14 +1,25 @@
 const { parsePcm16, analyse, HighPassFilter, Decimator } = require('./dsp')
+const { ANALYSIS_SAMPLE_RATE, ANALYSIS_MAX_FREQUENCY, FFT_SIZE, WINDOW_SIZE, HOP_SIZE, DECIMATOR_CUTOFF_HZ, DECIMATOR_TAP_COUNT } = require('./analysis-config')
 
 const HEADER_READ_SIZE = 4096
-const FILE_CHUNK_SIZE = 256 * 1024
-const ANALYSIS_RATE = 4000
-const FFT_SIZE = 4096
-const WINDOW_SIZE = 2048
-const HOP_SIZE = 1024
+const FILE_CHUNK_SIZE = 64 * 1024
 
 function callFs(fs, method, options) {
-  return new Promise((resolve, reject) => fs[method]({ ...options, success: resolve, fail: reject }))
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (callback, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      callback(value)
+    }
+    const timeout = setTimeout(() => finish(reject, new Error('读取 WAV 文件超时，请确认文件仍存在后重试')), 20000)
+    try {
+      fs[method]({ ...options, success: result => finish(resolve, result), fail: error => finish(reject, error) })
+    } catch (error) {
+      finish(reject, error)
+    }
+  })
 }
 
 function textAt(view, offset, length) {
@@ -46,14 +57,21 @@ function parseWavHeader(buffer) {
 
 async function averageSpectrumFromWav(filePath, options = {}) {
   const fs = wx.getFileSystemManager()
-  const statResult = await callFs(fs, 'stat', { path: filePath })
-  const fileSize = statResult.stats.size
-  const headerResult = await callFs(fs, 'readFile', { filePath, position: 0, length: Math.min(HEADER_READ_SIZE, fileSize) })
-  if (!(headerResult.data instanceof ArrayBuffer)) throw new Error('无法读取 WAV 文件')
-  const header = parseWavHeader(headerResult.data)
+  // Some WeChat base-library versions ignore readFile's position/length fields.
+  // That made the first supposed 64 KB chunk contain the entire WAV and kept the
+  // JS thread busy before the UI could paint any progress. Recordings are capped
+  // at 30 seconds (~2.75 MiB), so read once and slice the in-memory buffer into
+  // small cooperative chunks for predictable behavior across base libraries.
+  const fileResult = await callFs(fs, 'readFile', { filePath })
+  if (!(fileResult.data instanceof ArrayBuffer)) throw new Error('无法读取 WAV 文件')
+  const fileBuffer = fileResult.data
+  const fileSize = fileBuffer.byteLength
+  const header = parseWavHeader(fileBuffer.slice(0, Math.min(HEADER_READ_SIZE, fileSize)))
   const dataSize = Math.min(header.dataSize, fileSize - header.dataOffset)
+  if (options.onProgress) options.onProgress(1)
+  await new Promise(resolve => setTimeout(resolve, 0))
   const highPass = new HighPassFilter(header.sampleRate, 7)
-  const decimator = new Decimator(header.sampleRate, ANALYSIS_RATE, 1500, 129)
+  const decimator = new Decimator(header.sampleRate, ANALYSIS_SAMPLE_RATE, DECIMATOR_CUTOFF_HZ, DECIMATOR_TAP_COUNT)
   const analysisRate = decimator.outputRate
   const window = new Float32Array(WINDOW_SIZE)
   const workspace = {}
@@ -66,7 +84,7 @@ async function averageSpectrumFromWav(filePath, options = {}) {
   let binSpacingHz = analysisRate / FFT_SIZE
 
   const addWindow = length => {
-    const result = analyse(window.subarray(0, length), analysisRate, FFT_SIZE, { windowSize: length, workspace })
+    const result = analyse(window.subarray(0, length), analysisRate, FFT_SIZE, { windowSize: length, maxFrequency: ANALYSIS_MAX_FREQUENCY, spectrumOnly: true, workspace })
     if (!result) return
     if (!powerSum) powerSum = new Float64Array(result.spectrumDb.length)
     for (let index = 0; index < result.spectrumDb.length; index++) powerSum[index] += Math.pow(10, result.spectrumDb[index] / 10)
@@ -80,9 +98,10 @@ async function averageSpectrumFromWav(filePath, options = {}) {
     let length = Math.min(FILE_CHUNK_SIZE, dataSize - bytePosition)
     length -= length % header.blockAlign
     if (!length) break
-    const readResult = await callFs(fs, 'readFile', { filePath, position: header.dataOffset + bytePosition, length })
-    if (!(readResult.data instanceof ArrayBuffer) || !readResult.data.byteLength) throw new Error('WAV 音频数据读取中断')
-    const filtered = highPass.process(parsePcm16(readResult.data))
+    const chunk = fileBuffer.slice(header.dataOffset + bytePosition, header.dataOffset + bytePosition + length)
+    if (!chunk.byteLength) throw new Error('WAV 音频数据读取中断')
+    const pcm = parsePcm16(chunk)
+    const filtered = highPass.process(pcm)
     const samples = decimator.process(filtered)
     for (let index = 0; index < samples.length; index++) {
       const value = samples[index]
@@ -94,8 +113,8 @@ async function averageSpectrumFromWav(filePath, options = {}) {
         windowCount = WINDOW_SIZE - HOP_SIZE
       }
     }
-    bytePosition += readResult.data.byteLength
-    if (options.onProgress) options.onProgress(Math.min(100, Math.round(bytePosition / dataSize * 100)))
+    bytePosition += chunk.byteLength
+    if (options.onProgress) options.onProgress(Math.max(1, Math.min(99, Math.round(1 + bytePosition / dataSize * 98))))
     await new Promise(resolve => setTimeout(resolve, 0))
   }
   if (!frameCount && windowCount >= 128) addWindow(windowCount)
@@ -103,7 +122,17 @@ async function averageSpectrumFromWav(filePath, options = {}) {
   const values = new Float32Array(powerSum.length)
   for (let index = 0; index < powerSum.length; index++) values[index] = 10 * Math.log10(Math.max(1e-10, powerSum[index] / frameCount))
   const rmsDb = 20 * Math.log10(Math.max(1e-7, Math.sqrt(sumSquares / sampleCount)))
-  return { values, spectrumStartHz, binSpacingHz, rmsDb, frameCount, analysisRate }
+  let peakIndex = 0
+  for (let index = 1; index < values.length; index++) if (values[index] > values[peakIndex]) peakIndex = index
+  if (options.onProgress) options.onProgress(100)
+  return {
+    values, spectrumStartHz, binSpacingHz, rmsDb,
+    peakFrequency: spectrumStartHz + peakIndex * binSpacingHz,
+    spectrumPeakDb: values[peakIndex],
+    frameCount, analysisRate, windowSize: WINDOW_SIZE, hopSize: HOP_SIZE,
+    overlapRatio: 1 - HOP_SIZE / WINDOW_SIZE,
+    wavSampleRate: header.sampleRate, channels: header.channels, bitsPerSample: header.bitsPerSample
+  }
 }
 
-module.exports = { parseWavHeader, averageSpectrumFromWav }
+module.exports = { parseWavHeader, averageSpectrumFromWav, ANALYSIS_RATE: ANALYSIS_SAMPLE_RATE, ANALYSIS_MAX_FREQUENCY, FFT_SIZE, WINDOW_SIZE, HOP_SIZE }

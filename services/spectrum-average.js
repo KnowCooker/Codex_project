@@ -7,8 +7,11 @@ function clampSeconds(value) {
 }
 
 class SpectrumAverage {
-  constructor(seconds = 3) {
+  constructor(seconds = 3, geometry = {}) {
     this.seconds = clampSeconds(seconds)
+    this.sampleRate = Number(geometry.sampleRate) || 0
+    this.windowSize = Math.max(0, Math.round(Number(geometry.windowSize) || 0))
+    this.hopSize = Math.max(0, Math.round(Number(geometry.hopSize) || 0))
     this.reset()
   }
 
@@ -23,14 +26,22 @@ class SpectrumAverage {
     this.sumClipped = 0
     this.activeCount = 0
     this.pool = []
-    this.latestAt = 0
+  }
+
+  frameCountForSeconds(seconds) {
+    if (this.sampleRate > 0 && this.windowSize > 0 && this.hopSize > 0) {
+      const availableSamples = Math.round(seconds * this.sampleRate)
+      if (availableSamples <= this.windowSize) return 1
+      return Math.floor((availableSamples - this.windowSize) / this.hopSize) + 1
+    }
+    return Math.max(1, Math.round(seconds * 10))
   }
 
   setSeconds(seconds) {
     const next = clampSeconds(seconds)
     if (next === this.seconds) return next
     this.seconds = next
-    this.rebuildActiveWindow(this.latestAt || Date.now())
+    this.rebuildActiveWindow()
     return next
   }
 
@@ -54,17 +65,9 @@ class SpectrumAverage {
     this.activeCount += direction
   }
 
-  trimActiveWindow(now) {
-    const cutoff = now - this.seconds * 1000
-    while (this.activeStart < this.history.length && this.history[this.activeStart].at < cutoff) {
-      this.addEntry(this.history[this.activeStart], -1)
-      this.activeStart++
-    }
-  }
-
-  trimHistory(now) {
-    const cutoff = now - MAX_SECONDS * 1000
-    while (this.historyStart < this.history.length && this.history[this.historyStart].at < cutoff) {
+  trimHistory() {
+    const maximumCount = this.frameCountForSeconds(MAX_SECONDS)
+    while (this.history.length - this.historyStart > maximumCount) {
       const entry = this.history[this.historyStart]
       if (this.historyStart >= this.activeStart) {
         this.addEntry(entry, -1)
@@ -73,46 +76,44 @@ class SpectrumAverage {
       this.pool.push(entry.spectrumPower)
       this.historyStart++
     }
-    if (this.historyStart > 256 && this.historyStart * 2 > this.history.length) {
+    if (this.historyStart > 128 && this.historyStart * 2 > this.history.length) {
       this.history = this.history.slice(this.historyStart)
       this.activeStart -= this.historyStart
       this.historyStart = 0
     }
   }
 
-  rebuildActiveWindow(now) {
+  rebuildActiveWindow() {
     if (!this.sumSpectrumPower) return
     this.sumSpectrumPower.fill(0)
     this.sumRmsPower = 0
     this.sumPeakPower = 0
     this.sumClipped = 0
     this.activeCount = 0
-    const cutoff = now - this.seconds * 1000
-    this.activeStart = this.history.length
-    for (let index = this.historyStart; index < this.history.length; index++) {
-      if (this.history[index].at < cutoff) continue
-      if (this.activeStart === this.history.length) this.activeStart = index
-      this.addEntry(this.history[index], 1)
-    }
+    const targetCount = this.frameCountForSeconds(this.seconds)
+    this.activeStart = Math.max(this.historyStart, this.history.length - targetCount)
+    for (let index = this.activeStart; index < this.history.length; index++) this.addEntry(this.history[index], 1)
   }
 
-  push(result, now = Date.now()) {
+  push(result) {
     if (!result || !result.spectrumDb || !result.spectrumDb.length) return result
     this.ensureBuffers(result.spectrumDb.length)
-    this.latestAt = now
     const spectrumPower = this.acquirePowerBuffer(result.spectrumDb.length)
     for (let index = 0; index < spectrumPower.length; index++) spectrumPower[index] = Math.pow(10, result.spectrumDb[index] / 10)
     const entry = {
-      at: now,
       spectrumPower,
       rmsPower: result.rms * result.rms,
       peakPower: result.peak * result.peak,
       clipped: result.clipped || 0
     }
+    const targetCount = this.frameCountForSeconds(this.seconds)
+    if (this.activeCount >= targetCount && this.activeStart < this.history.length) {
+      this.addEntry(this.history[this.activeStart], -1)
+      this.activeStart++
+    }
     this.history.push(entry)
     this.addEntry(entry, 1)
-    this.trimActiveWindow(now)
-    this.trimHistory(now)
+    this.trimHistory()
 
     const count = Math.max(1, this.activeCount)
     let spectrumPeakDb = -100
@@ -124,6 +125,7 @@ class SpectrumAverage {
     }
     const rms = Math.sqrt(Math.max(0, this.sumRmsPower / count))
     const peak = Math.sqrt(Math.max(0, this.sumPeakPower / count))
+    const coveredSamples = this.windowSize > 0 && this.hopSize > 0 ? this.windowSize + Math.max(0, count - 1) * this.hopSize : 0
     return Object.assign({}, result, {
       rms,
       rmsDb: 20 * Math.log10(Math.max(1e-7, rms)),
@@ -134,7 +136,9 @@ class SpectrumAverage {
       spectrumPeakDb,
       spectrumDb: this.outputSpectrum,
       averageSeconds: this.seconds,
-      averageFrameCount: count
+      averageFrameCount: count,
+      averageTargetFrameCount: this.frameCountForSeconds(this.seconds),
+      averageCoveredMs: this.sampleRate > 0 ? coveredSamples / this.sampleRate * 1000 : 0
     })
   }
 }

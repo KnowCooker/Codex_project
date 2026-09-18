@@ -2,7 +2,6 @@
   "pages": [
     "pages/home/index",
     "pages/analyzer/index",
-    "pages/history/index",
     "pages/recordings/index",
     "pages/record-detail/index",
     "pages/compare/index"
@@ -15,14 +14,15 @@
     "backgroundTextStyle": "light"
   },
   "tabBar": {
+    "custom": true,
     "color": "#718096",
     "selectedColor": "#158f88",
     "backgroundColor": "#f8fbff",
     "borderStyle": "white",
     "list": [
       { "pagePath": "pages/home/index", "text": "首页" },
-      { "pagePath": "pages/history/index", "text": "记录" },
-      { "pagePath": "pages/recordings/index", "text": "录音文件" }
+      { "pagePath": "pages/recordings/index", "text": "录音文件" },
+      { "pagePath": "pages/compare/index", "text": "数据对比" }
     ]
   }
 }

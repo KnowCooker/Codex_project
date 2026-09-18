@@ -1,1 +1,0 @@
-.header { margin-bottom:26rpx; }.clear { margin:0; padding:0 16rpx; font-size:22rpx; background:rgba(224,232,246,.78); color:#38516f; }.record { padding:24rpx; }.record-name { color:#263957; font-size:27rpx; font-weight:600; }.stats { margin-top:20rpx; color:#60718d; font-size:23rpx; }
