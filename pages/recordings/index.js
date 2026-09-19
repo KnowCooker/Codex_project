@@ -1,7 +1,7 @@
 const repo = require('../../services/recording-repository')
 
 function present(record) {
-  const formatLabel = record.playbackReady || record.fileFormat === 'wav' || /\.wav$/i.test(record.filePath || '') ? 'WAV' : 'PCM'
+  const formatLabel = record.fileFormat === 'wav' || /\.wav$/i.test(record.filePath || '') ? 'WAV' : 'PCM'
   const calibrationDb = repo.recordCalibrationDb(record)
   return {
     id: record.id,
@@ -9,7 +9,6 @@ function present(record) {
     pinned: Boolean(record.pinned),
     offset: 0,
     createdAt: record.createdAt,
-    mode: record.mode,
     sampleRateLabel: `${formatLabel} ${repo.wavSampleRate(record)} Hz`,
     calibrationLabel: `${calibrationDb > 0 ? '+' : ''}${calibrationDb.toFixed(1)} dB`,
     durationLabel: `${(Math.max(0, record.duration || 0) / 1000).toFixed(1)} 秒`,

@@ -12,7 +12,7 @@
     <view class="divider"/>
     <view class="row"><text class="muted">录音时校准差值</text><text class="value">{{record.calibrationLabel}}</text></view>
   </view>
-  <view wx:if="{{playbackMessage}}" class="notice">{{playbackMessage}}</view>
-  <view class="actions"><button class="secondary" disabled="{{!playbackAvailable}}" bindtap="togglePlayback">{{playing ? '暂停回放' : '回放 WAV'}}</button><button class="secondary" bindtap="compare">数据对比</button></view>
+  <view wx:if="{{fileMessage}}" class="notice">{{fileMessage}}</view>
+  <view class="actions"><button class="secondary" bindtap="compare">数据对比</button></view>
   <button class="danger delete" bindtap="remove">删除此记录</button>
 </view>

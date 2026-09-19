@@ -1,5 +1,5 @@
 const { CaptureService, STATES } = require('../../services/capture-service')
-const { getSystemProfile, requestedAudioSource } = require('../../services/compatibility')
+const { getSystemProfile, deviceGate } = require('../../services/compatibility')
 const repo = require('../../services/recording-repository')
 const { getWeightingOffsets, summarizeSpectrum, spectrumRange, valueAt } = require('../../services/weighting')
 const { averageSpectrumFromWav } = require('../../services/file-spectrum')
@@ -34,11 +34,10 @@ function snapshotMetrics(metrics) {
   return Object.assign({}, metrics, { spectrumDb: new Float32Array(metrics.spectrumDb || []) })
 }
 function recordingChoices() {
-  return repo.list().filter(item => item.filePath && (item.playbackReady || item.fileFormat === 'wav' || /\.wav$/i.test(item.filePath))).map(item => ({
+  return repo.list().filter(item => item.filePath && (item.fileFormat === 'wav' || /\.wav$/i.test(item.filePath))).map(item => ({
     id: item.id,
     name: item.name,
     createdAt: item.createdAt,
-    mode: item.mode,
     filePath: item.filePath,
     sampleRateLabel: `WAV ${repo.wavSampleRate(item)} Hz`,
     durationLabel: `${(Math.max(0, item.duration || 0) / 1000).toFixed(1)} 秒`,
@@ -46,12 +45,28 @@ function recordingChoices() {
   }))
 }
 Page({
-  data: { mode: 'phone', earSide: 'auto', source: 'mic', state: 'idle', elapsed: '00:00', recordingElapsed: '00:00.0', recordingProgress: 0, recording: false, recordingFinalizing: false, metrics: null, error: '', warning: '', hasData: false, hasReference: false, referenceTime: '', referenceMetricView: null, weighting: 'linear', weightingLabel: '线性计权', weightingUnit: 'dB', spectrumAxis: 'log', spectrumLabel: '对数频率轴', minFrequency: 20, maxFrequency: 500, frequencyMinInput: '20', frequencyMaxInput: '500', yScaleMode: 'manual', manualMin: '-80', manualMax: '-20', manualRange: { min: -80, max: -20 }, calibrationOffset: 0, calibrationInput: '0', averageSeconds: 3, averageFrameCount: 0, averageTargetFrameCount: 0, settingsOpen: false, canvasWidth: 320, canvasHeight: 300, canvasCssHeight: 300, recordings: [], referencePickerOpen: false, referenceLoading: false, referenceProgress: 0, referenceImportError: '' },
-  onLoad(query) {
+  data: { testStarted: false, deviceChecking: false, state: 'idle', elapsed: '00:00', recordingElapsed: '00:00.0', recordingProgress: 0, recording: false, recordingFinalizing: false, metrics: null, error: '', hasData: false, hasReference: false, referenceTime: '', referenceMetricView: null, weighting: 'linear', weightingLabel: '线性计权', weightingUnit: 'dB', spectrumAxis: 'log', spectrumLabel: '对数频率轴', minFrequency: 20, maxFrequency: 500, frequencyMinInput: '20', frequencyMaxInput: '500', yScaleMode: 'manual', manualMin: '-80', manualMax: '-20', manualRange: { min: -80, max: -20 }, calibrationOffset: 0, calibrationInput: '0', averageSeconds: 1, averageFrameCount: 0, averageTargetFrameCount: 0, settingsOpen: false, canvasWidth: 320, canvasHeight: 300, canvasCssHeight: 300, recordings: [], referencePickerOpen: false, referenceLoading: false, referenceProgress: 0, referenceImportError: '' },
+  onLoad() {
     this.pageActive = true
-    const profile = getSystemProfile(); const mode = query.mode || 'phone'; const earSide = query.earSide || 'auto'
     const calibrationOffset = getCalibrationOffset()
-    this.setData({ mode, earSide, source: query.source || requestedAudioSource(mode, profile.platform), profile, recordings: recordingChoices(), calibrationOffset, calibrationInput: String(calibrationOffset), manualMin: String(-80 + calibrationOffset), manualMax: String(-20 + calibrationOffset), manualRange: { min: -80 + calibrationOffset, max: -20 + calibrationOffset }, warning: mode === 'headset' ? '耳机输入为“未验证”。已请求专用耳机输入；检测到录音暂停或音频中断时会停止测试。' : '' })
+    this.setData({ recordings: recordingChoices(), calibrationOffset, calibrationInput: String(calibrationOffset), manualMin: String(-80 + calibrationOffset), manualMax: String(-20 + calibrationOffset), manualRange: { min: -80 + calibrationOffset, max: -20 + calibrationOffset } })
+  },
+  beginTest() {
+    if (this.data.deviceChecking || this.data.testStarted) return
+    this.setData({ deviceChecking: true })
+    const profile = getSystemProfile()
+    const gate = deviceGate(profile)
+    if (!gate.allowed) {
+      this.setData({ deviceChecking: false, state: 'unsupported' })
+      wx.nextTick(() => wx.showModal({ title: '当前设备不适配', content: gate.message, showCancel: false }))
+      return
+    }
+    this.setData({ profile, testStarted: true, deviceChecking: false, state: 'idle' }, () => {
+      this.initializeCapture()
+      wx.nextTick(() => this.measureChart())
+    })
+  },
+  initializeCapture() {
     if (!capture) capture = new CaptureService()
     capture.on({
       data: metrics => {
@@ -70,8 +85,7 @@ Page({
         if (!options.recording) { this.recordingStartedAt = 0; this.recordingStoppedAt = 0 }
         this.setData({ state, recording: Boolean(options.recording), recordingFinalizing: Boolean(options.finalizing) }, () => this.tick())
       },
-      routeLost: message => this.setData({ error: message }),
-      error: error => this.setData({ error, state: 'idle', recording: false, recordingFinalizing: false }), stop: file => this.complete(file)
+      error: error => this.handleCaptureError(error), stop: file => this.complete(file)
     })
     capture.setAverageDuration(this.data.averageSeconds)
     clearInterval(this.displayTimer)
@@ -79,27 +93,53 @@ Page({
     this.start()
   },
   onShow() {
-    const resume = this.pageActive === false && this.data.state === STATES.IDLE
+    if (typeof this.getTabBar === 'function' && this.getTabBar()) this.getTabBar().setData({ selected: 0 })
+    const resume = this.data.testStarted && this.pageActive === false && this.data.state === STATES.IDLE
     this.pageActive = true
-    if (resume) {
+    if (capture && resume) {
       clearInterval(this.displayTimer)
       this.displayTimer = setInterval(() => this.renderInterpolatedSpectrum(), DISPLAY_INTERVAL_MS)
       this.start()
     }
   },
-  onReady() { this.measureChart() },
-  onResize() { wx.nextTick(() => this.measureChart()) },
-  onUnload() { this.pageActive = false; if (capture) capture.stop('page-hide'); clearInterval(this.timer); clearInterval(this.displayTimer) },
-  onHide() { this.pageActive = false; if (capture) capture.stop('page-hidden'); clearInterval(this.timer); clearInterval(this.displayTimer) },
+  onReady() { if (this.data.testStarted) this.measureChart() },
+  onResize() { if (this.data.testStarted) wx.nextTick(() => this.measureChart()) },
+  onUnload() { this.pageActive = false; if (capture && this.data.testStarted) capture.stop('page-hide'); clearInterval(this.timer); clearInterval(this.displayTimer) },
+  onHide() { this.pageActive = false; if (capture && this.data.testStarted) capture.stop('page-hidden'); clearInterval(this.timer); clearInterval(this.displayTimer) },
   async start() {
+    if (!capture || this.starting) return
+    this.starting = true
     try {
       this.setData({ error: '', state: 'requesting' })
-      await capture.start({ mode: this.data.mode, platform: this.data.profile.platform, earSide: this.data.earSide, recording: false })
+      await capture.start({ platform: this.data.profile.platform, recording: false })
       if (!this.pageActive) { capture.stop('page-hidden'); return }
       this.startedAt = Date.now(); this.timer = setInterval(() => this.tick(), 200)
     } catch (error) {
-      if (this.pageActive) this.setData({ error: '无法开始录音：' + (error.errMsg || error.message || '请检查麦克风权限'), state: 'idle' })
+      if (this.pageActive && !/采集启动已取消/.test(error.errMsg || error.message || '')) this.handleCaptureError(error)
+    } finally {
+      this.starting = false
     }
+  },
+  handleCaptureError(error) {
+    const detail = typeof error === 'string' ? error : (error && (error.errMsg || error.message)) || '未知错误'
+    const permissionDenied = /auth|authorize|permission|privacy|scope\.record|用户拒绝|授权/i.test(detail)
+    this.setData({ error: detail, state: 'idle', recording: false, recordingFinalizing: false })
+    if (!this.pageActive || this.errorDialogVisible) return
+    this.errorDialogVisible = true
+    wx.showModal({
+      title: permissionDenied ? '需要麦克风权限' : '无法启动测试',
+      content: permissionDenied ? '实时测试需要使用麦克风。请在微信设置中允许麦克风权限后重试。' : `麦克风采集启动失败：${detail}`,
+      confirmText: permissionDenied ? '去设置' : '知道了',
+      showCancel: permissionDenied,
+      success: result => {
+        if (permissionDenied && result.confirm && wx.openSetting) {
+          wx.openSetting({ success: settings => {
+            if (settings.authSetting && settings.authSetting['scope.record'] && this.pageActive) this.start()
+          } })
+        }
+      },
+      complete: () => { this.errorDialogVisible = false }
+    })
   },
   tick() {
     const seconds = this.startedAt ? Math.floor((Date.now() - this.startedAt) / 1000) : 0
@@ -130,11 +170,11 @@ Page({
         return
       }
       this.setData({ state: 'idle', recording: false, recordingFinalizing: false })
-      wx.showToast({ title: file.stopReason === 'headset-route-lost' ? '耳机已断开，分析已停止' : '分析已结束，未保存录音', icon: 'none' })
+      wx.showToast({ title: '分析已结束，未保存录音', icon: 'none' })
       return
     }
     const now = new Date(); const id = `${Date.now()}-${Math.floor(Math.random() * 10000)}`
-    const record = { id, name: `测试 ${now.toLocaleString()}`, notes: '', tags: [], createdAt: now.toLocaleString(), mode: this.data.mode, earSide: this.data.earSide, earVerified: this.data.mode !== 'headset', source: this.data.source, platform: this.data.profile.platform, model: this.data.profile.model, wavSampleRate: file.sampleRate || 48000, channels: file.channels || 1, bitsPerSample: file.bitsPerSample || 16, calibrationDb: Number.isFinite(this.recordingCalibrationDb) ? this.recordingCalibrationDb : this.data.calibrationOffset, duration: file.duration, filePath: file.tempFilePath, fileSize: file.fileSize, fileFormat: file.fileFormat, playbackReady: file.playbackReady, conversionError: file.conversionError, interruptedReason: file.stopReason || 'user' }
+    const record = { id, name: `测试 ${now.toLocaleString()}`, notes: '', tags: [], createdAt: now.toLocaleString(), platform: this.data.profile.platform, model: this.data.profile.model, wavSampleRate: file.sampleRate || 48000, channels: file.channels || 1, bitsPerSample: file.bitsPerSample || 16, calibrationDb: Number.isFinite(this.recordingCalibrationDb) ? this.recordingCalibrationDb : this.data.calibrationOffset, duration: file.duration, filePath: file.tempFilePath, fileSize: file.fileSize, fileFormat: file.fileFormat, conversionError: file.conversionError, interruptedReason: file.stopReason || 'user' }
     repo.save(record)
     this.recordingCalibrationDb = null
     this.setData({ state: 'idle', recording: false, recordingFinalizing: false, recordings: recordingChoices() })

@@ -1,13 +1,18 @@
-<view class="page">
+<view wx:if="{{!testStarted}}" class="page test-entry-page">
+  <view class="test-entry-card">
+    <view class="test-entry-title">实时频谱测试</view>
+    <view class="test-entry-copy">点击开始后将先校验当前设备，校验通过后进入测试并申请麦克风权限。</view>
+    <button class="primary test-entry-button" disabled="{{deviceChecking}}" bindtap="beginTest">{{deviceChecking ? '正在校验…' : '开始测试'}}</button>
+  </view>
+</view>
+<view wx:else class="page">
   <view class="top">
     <view>
-      <view class="title">{{mode === 'phone' ? '手机麦克风' : '耳机麦克风'}}</view>
-      <view class="subtitle">{{source}} · 分析 {{elapsed}} · {{earSide === 'auto' ? '自动耳侧' : '用户声明' + (earSide === 'left' ? '左耳' : '右耳')}}</view>
+      <view class="title">实时频谱测试</view>
+      <view class="subtitle">分析 {{elapsed}}</view>
     </view>
     <text class="tag {{recording ? 'warn' : (state === 'analysing' ? 'ok' : 'warn')}}">{{recording ? '录音 ' + recordingElapsed + '/00:30.0' : (state === 'analysing' ? '分析中' : (state === 'paused' ? '已暂停' : '准备中'))}}</text>
   </view>
-  <view wx:if="{{warning}}" class="notice">{{warning}}</view>
-  <view wx:if="{{error}}" class="notice error">{{error}}</view>
   <view wx:if="{{recording}}" class="recording-status {{recordingFinalizing ? 'finalizing' : ''}}">
     <view class="recording-status-row"><view class="recording-title"><text class="recording-dot"></text>{{recordingFinalizing ? '正在生成 WAV 文件' : '正在录音'}}</view><text class="recording-time">{{recordingElapsed}} / 00:30.0</text></view>
     <view class="recording-progress"><view class="recording-progress-value" style="width: {{recordingProgress}}%;"></view></view>
@@ -26,17 +31,31 @@
     <view class="axis-caption"><text>纵轴：估计声压级 / {{weightingUnit}}</text><text>横轴：频率 / Hz</text></view>
     <button class="drawing-settings-toggle" bindtap="toggleSettings">{{settingsOpen ? '收起绘图设置' : '绘图设置'}}</button>
     <view wx:if="{{settingsOpen}}" class="drawing-settings">
-      <view class="setting-row"><text class="setting-label">计权</text><view class="setting-options"><button data-weighting="a" bindtap="setWeighting" class="axis-button {{weighting === 'a' ? 'active' : ''}}">A</button><button data-weighting="linear" bindtap="setWeighting" class="axis-button {{weighting === 'linear' ? 'active' : ''}}">线性</button></view></view>
-      <view class="setting-row average-setting"><view><view class="setting-label">平均时长：{{averageSeconds}} 秒</view><view class="setting-hint">可调范围 1–30 秒，窗口越长曲线越稳定</view></view><slider class="average-slider" min="1" max="30" step="1" value="{{averageSeconds}}" bindchange="setAverageDuration" activeColor="#38b6ad" backgroundColor="#dfe8f4" block-size="18"/></view>
-      <view class="setting-label">横轴频率范围（20–1000 Hz）</view>
-      <view class="range-inputs frequency-range-inputs"><input type="number" value="{{frequencyMinInput}}" bindinput="setFrequencyMinInput" placeholder="下限 Hz"/><text>至</text><input type="number" value="{{frequencyMaxInput}}" bindinput="setFrequencyMaxInput" placeholder="上限 Hz"/><button bindtap="applyFrequencyRange">应用</button></view>
-      <view class="setting-row"><text class="setting-label">横轴</text><view class="setting-options"><button data-axis="log" bindtap="setSpectrumAxis" class="axis-button {{spectrumAxis === 'log' ? 'active' : ''}}">对数</button><button data-axis="linear" bindtap="setSpectrumAxis" class="axis-button {{spectrumAxis === 'linear' ? 'active' : ''}}">线性</button></view></view>
-      <view class="setting-row"><text class="setting-label">纵轴</text><view class="setting-options"><button data-mode="auto" bindtap="setYScaleMode" class="scale-button {{yScaleMode === 'auto' ? 'active' : ''}}">自动</button><button data-mode="manual" bindtap="setYScaleMode" class="scale-button {{yScaleMode === 'manual' ? 'active' : ''}}">固定</button></view></view>
-      <view wx:if="{{yScaleMode === 'manual'}}" class="range-inputs"><input type="text" value="{{manualMin}}" bindinput="setManualMin" placeholder="最小 {{weightingUnit}}"/><text>至</text><input type="text" value="{{manualMax}}" bindinput="setManualMax" placeholder="最大 {{weightingUnit}}"/><button bindtap="applyManualRange">应用</button></view>
-      <view class="setting-label calibration-label">声压级校准修正（dB）</view>
-      <view class="range-inputs calibration-input"><input type="digit" value="{{calibrationInput}}" bindinput="setCalibrationInput" placeholder="例如 10"/><button bindtap="applyCalibration">应用校准</button></view>
-      <view class="setting-hint">正值使频谱和指标整体上移；固定纵轴上下限会同步平移。校准只影响显示，不修改原始 WAV。</view>
-      <view class="reference-controls"><button class="reference-button" disabled="{{!hasData}}" bindtap="setReference">{{hasReference ? '更新参考' : '设为参考'}}</button><button class="file-reference-button" disabled="{{recording}}" bindtap="openReferencePicker">从录音导入</button><button wx:if="{{hasReference}}" class="clear-reference" bindtap="clearReference">清除参考</button></view>
+      <view class="settings-group">
+        <view class="settings-group-title">显示方式</view>
+        <view class="setting-row"><text class="setting-label">计权</text><view class="setting-options"><button data-weighting="a" bindtap="setWeighting" class="axis-button {{weighting === 'a' ? 'active' : ''}}">A</button><button data-weighting="linear" bindtap="setWeighting" class="axis-button {{weighting === 'linear' ? 'active' : ''}}">线性</button></view></view>
+        <view class="setting-row"><text class="setting-label">横轴刻度</text><view class="setting-options"><button data-axis="log" bindtap="setSpectrumAxis" class="axis-button {{spectrumAxis === 'log' ? 'active' : ''}}">对数</button><button data-axis="linear" bindtap="setSpectrumAxis" class="axis-button {{spectrumAxis === 'linear' ? 'active' : ''}}">线性</button></view></view>
+        <view class="setting-row last-setting-row"><text class="setting-label">纵轴范围</text><view class="setting-options"><button data-mode="auto" bindtap="setYScaleMode" class="scale-button {{yScaleMode === 'auto' ? 'active' : ''}}">自动</button><button data-mode="manual" bindtap="setYScaleMode" class="scale-button {{yScaleMode === 'manual' ? 'active' : ''}}">固定</button></view></view>
+      </view>
+      <view class="settings-group">
+        <view class="settings-group-title">显示范围</view>
+        <view class="setting-label">横轴频率（20–1000 Hz）</view>
+        <view class="range-inputs frequency-range-inputs"><input type="number" value="{{frequencyMinInput}}" bindinput="setFrequencyMinInput" placeholder="下限 Hz"/><text>至</text><input type="number" value="{{frequencyMaxInput}}" bindinput="setFrequencyMaxInput" placeholder="上限 Hz"/><button bindtap="applyFrequencyRange">应用</button></view>
+        <view wx:if="{{yScaleMode === 'manual'}}" class="setting-label range-setting-label">纵轴声压级（{{weightingUnit}}）</view>
+        <view wx:if="{{yScaleMode === 'manual'}}" class="range-inputs"><input type="text" value="{{manualMin}}" bindinput="setManualMin" placeholder="最小值"/><text>至</text><input type="text" value="{{manualMax}}" bindinput="setManualMax" placeholder="最大值"/><button bindtap="applyManualRange">应用</button></view>
+        <view wx:else class="setting-hint">纵轴范围当前随信号幅度自动调整。</view>
+      </view>
+      <view class="settings-group">
+        <view class="settings-group-title">频谱平均</view>
+        <view class="setting-row average-setting"><view><view class="setting-label">平均时长：{{averageSeconds}} 秒</view><view class="setting-hint">可调范围 1–30 秒，窗口越长曲线越稳定</view></view><slider class="average-slider" min="1" max="30" step="1" value="{{averageSeconds}}" bindchange="setAverageDuration" activeColor="#38b6ad" backgroundColor="#dfe8f4" block-size="18"/></view>
+      </view>
+      <view class="settings-group last-settings-group">
+        <view class="settings-group-title">校准与参考</view>
+        <view class="setting-label">声压级校准修正（dB）</view>
+        <view class="range-inputs calibration-input"><input type="digit" value="{{calibrationInput}}" bindinput="setCalibrationInput" placeholder="例如 10"/><button bindtap="applyCalibration">应用校准</button></view>
+        <view class="setting-hint">正值使频谱和指标整体上移；固定纵轴上下限会同步平移。校准只影响显示，不修改原始 WAV。</view>
+        <view class="reference-controls"><button class="reference-button" disabled="{{!hasData}}" bindtap="setReference">{{hasReference ? '更新参考' : '设为参考'}}</button><button class="file-reference-button" disabled="{{recording}}" bindtap="openReferencePicker">从录音导入</button><button wx:if="{{hasReference}}" class="clear-reference" bindtap="clearReference">清除参考</button></view>
+      </view>
     </view>
   </view>
 
@@ -75,7 +94,7 @@
       <scroll-view scroll-y class="recording-picker-list">
         <view wx:for="{{recordings}}" wx:key="id" class="recording-picker-item" data-id="{{item.id}}" bindtap="selectReferenceFile">
           <view class="picker-file-title">{{item.name}}</view>
-          <view class="picker-file-meta">{{item.createdAt}} · {{item.sampleRateLabel}} · {{item.durationLabel}} · {{item.fileSizeLabel}} · {{item.mode === 'phone' ? '手机' : '耳机'}}</view>
+          <view class="picker-file-meta">{{item.createdAt}} · {{item.sampleRateLabel}} · {{item.durationLabel}} · {{item.fileSizeLabel}}</view>
         </view>
       </scroll-view>
       <button class="secondary dialog-close" disabled="{{referenceLoading}}" bindtap="closeReferencePicker">取消</button>

@@ -22,13 +22,20 @@ function recordCalibrationDb(record) {
 }
 
 function sanitize(record) {
+  const fileFormat = record && (record.fileFormat === 'wav' || record.playbackReady || /\.wav$/i.test(record.filePath || '')) ? 'wav' : ((record && record.fileFormat) || 'pcm')
   const clean = Object.assign({}, record, {
+    fileFormat,
     wavSampleRate: wavSampleRate(record),
     channels: Number(record && record.channels) || 1,
     bitsPerSample: Number(record && record.bitsPerSample) || 16,
     calibrationDb: recordCalibrationDb(record)
   })
   DERIVED_FIELDS.forEach(field => delete clean[field])
+  delete clean.mode
+  delete clean.earSide
+  delete clean.earVerified
+  delete clean.source
+  delete clean.playbackReady
   delete clean.sampleRate
   delete clean.originalSampleRate
   return clean

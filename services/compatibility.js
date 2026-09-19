@@ -3,9 +3,11 @@ function getSystemProfile() {
   const legacy = (!wx.getDeviceInfo || !wx.getAppBaseInfo) ? wx.getSystemInfoSync() : {}
   const device = wx.getDeviceInfo ? wx.getDeviceInfo() : legacy
   const app = wx.getAppBaseInfo ? wx.getAppBaseInfo() : legacy
-  const isIOS = device.platform === 'ios'
+  const rawPlatform = String(device.platform || '').toLowerCase()
+  const platformNames = { ios: 'iOS', android: 'Android', devtools: 'DevTools' }
   return {
-    platform: isIOS ? 'iOS' : 'Android',
+    platform: platformNames[rawPlatform] || rawPlatform || 'unknown',
+    rawPlatform,
     model: device.model || 'unknown',
     system: device.system || 'unknown',
     wechatVersion: app.version || 'unknown',
@@ -15,14 +17,14 @@ function getSystemProfile() {
   }
 }
 
-function iosBuildGate(profile) {
-  if (profile.platform !== 'iOS') return { allowed: true, message: 'Android 使用标准麦克风兼容模式，当前尚未完成全部机型验证；结果仅用于相对观察。' }
-  return { allowed: true, message: 'iOS 为首轮验证平台；不同设备的麦克风响应可能存在差异。' }
+function deviceGate(profile) {
+  if (!wx.getRecorderManager) return { allowed: false, message: '当前微信环境不支持实时麦克风采集，请升级微信后重试。' }
+  if (profile.rawPlatform === 'ios' || profile.rawPlatform === 'android' || profile.rawPlatform === 'devtools') return { allowed: true, message: '' }
+  return { allowed: false, message: '当前版本仅适配 iOS 和 Android 手机，请使用手机微信打开。' }
 }
 
-function requestedAudioSource(mode, platform) {
-  if (mode === 'phone') return platform === 'iOS' ? 'buildInMic' : 'mic'
-  return platform === 'iOS' ? 'headsetMic' : 'mic'
+function requestedAudioSource(platform) {
+  return platform === 'iOS' ? 'buildInMic' : 'mic'
 }
 
-module.exports = { getSystemProfile, requestedAudioSource, iosBuildGate }
+module.exports = { getSystemProfile, requestedAudioSource, deviceGate }

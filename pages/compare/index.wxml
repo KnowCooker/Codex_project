@@ -3,7 +3,7 @@
   <view class="card selection-card">
     <view class="row"><view class="section-title">选择录音</view><text class="selection-count">已选 {{selectedCount}} 条</text></view>
     <view wx:if="{{!records.length}}" class="empty compact-empty">暂无可分析的 WAV 录音</view>
-    <checkbox-group wx:else bindchange="toggleSelection"><scroll-view scroll-y class="record-list"><label wx:for="{{records}}" wx:key="id" class="record-option"><checkbox value="{{item.id}}" checked="{{item.selected}}" color="#38b6ad"/><view class="record-copy"><view class="record-name">{{item.name}}</view><view class="record-meta">{{item.createdAt}} · {{item.mode === 'phone' ? '手机' : '耳机'}} · {{item.sampleRateLabel}} · 校准 {{item.calibrationLabel}}</view></view></label></scroll-view></checkbox-group>
+    <checkbox-group wx:else bindchange="toggleSelection"><scroll-view scroll-y class="record-list"><label wx:for="{{records}}" wx:key="id" class="record-option"><checkbox value="{{item.id}}" checked="{{item.selected}}" color="#38b6ad"/><view class="record-copy"><view class="record-name">{{item.name}}</view><view class="record-meta">{{item.createdAt}} · {{item.sampleRateLabel}} · 校准 {{item.calibrationLabel}}</view></view></label></scroll-view></checkbox-group>
   </view>
   <view wx:if="{{loading}}" class="notice compare-progress">{{analysisMessage}} {{analysisProgress}}%</view>
   <view wx:if="{{analysisErrors}}" class="notice error">{{analysisErrors}}</view>
@@ -15,13 +15,21 @@
     <view class="axis-caption"><text>纵轴：估计声压级 / {{weightingUnit}}</text><text>横轴：频率 / Hz</text></view>
     <button class="drawing-settings-toggle" bindtap="toggleSettings">{{settingsOpen ? '收起绘图设置' : '绘图设置'}}</button>
     <view wx:if="{{settingsOpen}}" class="drawing-settings">
-      <view class="setting-row"><text class="setting-label">计权</text><view class="setting-options"><button data-weighting="a" bindtap="setWeighting" class="option-button {{weighting === 'a' ? 'active' : ''}}">A</button><button data-weighting="linear" bindtap="setWeighting" class="option-button {{weighting === 'linear' ? 'active' : ''}}">线性</button></view></view>
-      <view class="setting-row"><text class="setting-label">横轴</text><view class="setting-options"><button data-axis="log" bindtap="setSpectrumAxis" class="option-button {{spectrumAxis === 'log' ? 'active' : ''}}">对数</button><button data-axis="linear" bindtap="setSpectrumAxis" class="option-button {{spectrumAxis === 'linear' ? 'active' : ''}}">线性</button></view></view>
-      <view class="setting-label">横轴频率范围（20–1000 Hz）</view>
-      <view class="range-inputs frequency-range-inputs"><input type="number" value="{{frequencyMinInput}}" bindinput="setFrequencyMinInput" placeholder="下限 Hz"/><text>至</text><input type="number" value="{{frequencyMaxInput}}" bindinput="setFrequencyMaxInput" placeholder="上限 Hz"/><button bindtap="applyFrequencyRange">应用</button></view>
-      <view class="setting-row"><text class="setting-label">纵轴</text><view class="setting-options"><button data-mode="auto" bindtap="setYScaleMode" class="option-button {{yScaleMode === 'auto' ? 'active' : ''}}">自动</button><button data-mode="manual" bindtap="setYScaleMode" class="option-button {{yScaleMode === 'manual' ? 'active' : ''}}">固定</button></view></view>
-      <view wx:if="{{yScaleMode === 'manual'}}" class="range-inputs"><input type="text" value="{{manualMin}}" bindinput="setManualMin" placeholder="最小 {{weightingUnit}}"/><text>至</text><input type="text" value="{{manualMax}}" bindinput="setManualMax" placeholder="最大 {{weightingUnit}}"/><button bindtap="applyManualRange">应用</button></view>
-      <view class="setting-hint">每条曲线自动使用该录音保存时记录的校准差值。</view>
+      <view class="settings-group">
+        <view class="settings-group-title">显示方式</view>
+        <view class="setting-row"><text class="setting-label">计权</text><view class="setting-options"><button data-weighting="a" bindtap="setWeighting" class="option-button {{weighting === 'a' ? 'active' : ''}}">A</button><button data-weighting="linear" bindtap="setWeighting" class="option-button {{weighting === 'linear' ? 'active' : ''}}">线性</button></view></view>
+        <view class="setting-row"><text class="setting-label">横轴刻度</text><view class="setting-options"><button data-axis="log" bindtap="setSpectrumAxis" class="option-button {{spectrumAxis === 'log' ? 'active' : ''}}">对数</button><button data-axis="linear" bindtap="setSpectrumAxis" class="option-button {{spectrumAxis === 'linear' ? 'active' : ''}}">线性</button></view></view>
+        <view class="setting-row last-setting-row"><text class="setting-label">纵轴范围</text><view class="setting-options"><button data-mode="auto" bindtap="setYScaleMode" class="option-button {{yScaleMode === 'auto' ? 'active' : ''}}">自动</button><button data-mode="manual" bindtap="setYScaleMode" class="option-button {{yScaleMode === 'manual' ? 'active' : ''}}">固定</button></view></view>
+      </view>
+      <view class="settings-group last-settings-group">
+        <view class="settings-group-title">显示范围</view>
+        <view class="setting-label">横轴频率（20–1000 Hz）</view>
+        <view class="range-inputs frequency-range-inputs"><input type="number" value="{{frequencyMinInput}}" bindinput="setFrequencyMinInput" placeholder="下限 Hz"/><text>至</text><input type="number" value="{{frequencyMaxInput}}" bindinput="setFrequencyMaxInput" placeholder="上限 Hz"/><button bindtap="applyFrequencyRange">应用</button></view>
+        <view wx:if="{{yScaleMode === 'manual'}}" class="setting-label range-setting-label">纵轴声压级（{{weightingUnit}}）</view>
+        <view wx:if="{{yScaleMode === 'manual'}}" class="range-inputs"><input type="text" value="{{manualMin}}" bindinput="setManualMin" placeholder="最小值"/><text>至</text><input type="text" value="{{manualMax}}" bindinput="setManualMax" placeholder="最大值"/><button bindtap="applyManualRange">应用</button></view>
+        <view wx:else class="setting-hint">纵轴范围当前随所选录音自动调整。</view>
+        <view class="setting-hint calibration-hint">每条曲线自动使用该录音保存时记录的校准差值。</view>
+      </view>
     </view>
   </view>
   <view class="card result-card">

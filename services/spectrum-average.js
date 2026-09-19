@@ -7,7 +7,7 @@ function clampSeconds(value) {
 }
 
 class SpectrumAverage {
-  constructor(seconds = 3, geometry = {}) {
+  constructor(seconds = 1, geometry = {}) {
     this.seconds = clampSeconds(seconds)
     this.sampleRate = Number(geometry.sampleRate) || 0
     this.windowSize = Math.max(0, Math.round(Number(geometry.windowSize) || 0))

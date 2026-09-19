@@ -2,7 +2,7 @@ Component({
   data: {
     selected: 0,
     tabs: [
-      { pagePath: '/pages/home/index', text: '首页' },
+      { pagePath: '/pages/analyzer/index', text: '实时测试' },
       { pagePath: '/pages/recordings/index', text: '录音文件' },
       { pagePath: '/pages/compare/index', text: '数据对比' }
     ]

@@ -31,7 +31,7 @@ function visibleSeries(values, offsets, startHz, binSpacingHz, minimum, maximum)
 }
 
 function canCompare(record) {
-  return Boolean(record && record.filePath && (record.playbackReady || record.fileFormat === 'wav' || /\.wav$/i.test(record.filePath)))
+  return Boolean(record && record.filePath && (record.fileFormat === 'wav' || /\.wav$/i.test(record.filePath)))
 }
 
 Page({
@@ -130,7 +130,7 @@ Page({
     if (this.series.some(item => item.spectrumStartHz - item.binSpacingHz * 1.1 > this.data.minFrequency || item.maxAvailableFrequency + item.binSpacingHz * 1.1 < this.data.maxFrequency)) warning += `${warning ? ' ' : ''}部分旧录音没有覆盖当前横轴的全部频率范围。`
     const rangeUpdates = this.manualRangeCustomized ? {} : { manualRange: defaultRange, manualMin: String(defaultRange.min), manualMax: String(defaultRange.max) }
     this.setData({
-      records: this.allRecords.map(record => { const calibrationDb = repo.recordCalibrationDb(record); return { id: record.id, name: record.name, createdAt: record.createdAt, mode: record.mode, selected: selected.includes(record.id), sampleRateLabel: `WAV ${repo.wavSampleRate(record)} Hz`, calibrationLabel: `${calibrationDb > 0 ? '+' : ''}${calibrationDb.toFixed(1)} dB` } }),
+      records: this.allRecords.map(record => { const calibrationDb = repo.recordCalibrationDb(record); return { id: record.id, name: record.name, createdAt: record.createdAt, selected: selected.includes(record.id), sampleRateLabel: `WAV ${repo.wavSampleRate(record)} Hz`, calibrationLabel: `${calibrationDb > 0 ? '+' : ''}${calibrationDb.toFixed(1)} dB` } }),
       selectedCount: selected.length,
       tableRows: this.series.map(item => ({ id: item.id, name: item.name, color: item.color, sampleRateLabel: item.sampleRateLabel, calibrationLabel: item.calibrationLabel, totalLevel: item.totalLevel })),
       warning,

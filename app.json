@@ -1,6 +1,5 @@
 {
   "pages": [
-    "pages/home/index",
     "pages/analyzer/index",
     "pages/recordings/index",
     "pages/record-detail/index",
@@ -20,7 +19,7 @@
     "backgroundColor": "#f8fbff",
     "borderStyle": "white",
     "list": [
-      { "pagePath": "pages/home/index", "text": "首页" },
+      { "pagePath": "pages/analyzer/index", "text": "实时测试" },
       { "pagePath": "pages/recordings/index", "text": "录音文件" },
       { "pagePath": "pages/compare/index", "text": "数据对比" }
     ]

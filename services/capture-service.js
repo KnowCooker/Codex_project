@@ -19,18 +19,17 @@ class CaptureService {
     this.samples = new Float32Array(this.fftSize * 2)
     this.sampleCount = 0
     this.startedAt = 0
-    this.mode = 'phone'
     this.operationId = 0
     this.recorderActive = false
-    this.spectrumAverage = new SpectrumAverage(3, { sampleRate: this.analysisSampleRate, windowSize: this.analysisWindowSize, hopSize: this.analysisHopSize })
+    this.spectrumAverage = new SpectrumAverage(1, { sampleRate: this.analysisSampleRate, windowSize: this.analysisWindowSize, hopSize: this.analysisHopSize })
     this.bind()
   }
   bind() {
     this.recorder.onFrameRecorded(({ frameBuffer }) => {
       if (this.state !== STATES.ANALYSING) return
       try {
-        // Recorder frames are normally a few KiB. Bound unexpected oversized
-        // headset frames so one native callback cannot monopolize the JS thread.
+        // Recorder frames are normally a few KiB. Bound an unexpected oversized
+        // frame so one native callback cannot monopolize the JS thread.
         const MAX_FRAME_BYTES = 128 * 1024
         const boundedBuffer = frameBuffer.byteLength > MAX_FRAME_BYTES ? frameBuffer.slice(frameBuffer.byteLength - MAX_FRAME_BYTES) : frameBuffer
         const frame = this.decimator.process(this.highPass.process(parsePcm16(boundedBuffer)))
@@ -52,12 +51,6 @@ class CaptureService {
         if (result && this.state === STATES.ANALYSING) this.callbacks.data && this.callbacks.data(result)
       } catch (error) { this.callbacks.error && this.callbacks.error('PCM 帧无法解析：' + error.message) }
     })
-    this.recorder.onPause(() => {
-      if (this.mode === 'headset' && this.state === STATES.ANALYSING) this.handleHeadsetRouteLost('耳机录音被系统暂停，可能是耳机断开或音频路由改变。')
-    })
-    this.recorder.onInterruptionBegin(() => {
-      if (this.mode === 'headset') this.handleHeadsetRouteLost('耳机音频路由已中断，测试已停止。')
-    })
     this.recorder.onError(error => { clearTimeout(this.segmentTimer); this.recorderActive = false; this.state = STATES.IDLE; this.callbacks.state && this.callbacks.state(this.state, { recording: false, finalizing: false }); this.callbacks.error && this.callbacks.error(error.errMsg || '录音器异常') })
     this.recorder.onStop(result => {
       clearTimeout(this.segmentTimer)
@@ -77,11 +70,6 @@ class CaptureService {
       this.finishStoppedFile(result, { duration, recorded: savedRecording, stopReason })
     })
   }
-  handleHeadsetRouteLost(message) {
-    if (this.mode !== 'headset' || ![STATES.ANALYSING, STATES.PAUSED].includes(this.state)) return
-    this.callbacks.routeLost && this.callbacks.routeLost(message)
-    this.stop('headset-route-lost')
-  }
   async finishStoppedFile(result, details) {
     const file = {
       tempFilePath: result.tempFilePath,
@@ -93,7 +81,6 @@ class CaptureService {
       sampleRate: this.sampleRate,
       channels: 1,
       bitsPerSample: 16,
-      playbackReady: false,
       conversionError: ''
     }
     if (details.recorded && result.tempFilePath) {
@@ -102,7 +89,6 @@ class CaptureService {
         file.tempFilePath = wav.filePath
         file.fileSize = wav.fileSize
         file.fileFormat = wav.format
-        file.playbackReady = true
       } catch (error) {
         file.conversionError = error.errMsg || error.message || 'PCM 转 WAV 失败'
       }
@@ -120,11 +106,11 @@ class CaptureService {
     this.samples.set(frame, this.sampleCount); this.sampleCount += frame.length
   }
   setAverageDuration(seconds) { return this.spectrumAverage.setSeconds(seconds) }
-  async start({ mode, platform, earSide = 'auto', recording = false, preserveAnalysisState = false }) {
+  async start({ platform, recording = false, preserveAnalysisState = false }) {
     if (this.state !== STATES.IDLE) throw new Error('当前采集尚未结束')
     const operationId = ++this.operationId
-    this.state = STATES.REQUESTING; this.mode = mode
-    this.startOptions = { mode, platform, earSide }; this.recordingEnabled = recording; this.lastAnalysisAt = 0
+    this.state = STATES.REQUESTING
+    this.startOptions = { platform }; this.recordingEnabled = recording; this.lastAnalysisAt = 0
     if (!preserveAnalysisState) {
       this.samples = new Float32Array(this.fftSize * 2); this.sampleCount = 0
       this.analysisReady = false; this.samplesSinceAnalysis = 0
@@ -135,22 +121,23 @@ class CaptureService {
     }
     // Trigger WeChat's unified privacy dialog before requesting microphone
     // permission. The platform privacy guide must declare microphone/audio use.
-    if (wx.requirePrivacyAuthorize) {
-      await new Promise((resolve, reject) => wx.requirePrivacyAuthorize({ success: resolve, fail: reject }))
+    try {
+      if (wx.requirePrivacyAuthorize) {
+        await new Promise((resolve, reject) => wx.requirePrivacyAuthorize({ success: resolve, fail: reject }))
+      }
+      if (operationId !== this.operationId) throw new Error('采集启动已取消')
+      await new Promise((resolve, reject) => wx.authorize({ scope: 'scope.record', success: resolve, fail: reject }))
+    } catch (error) {
+      if (operationId === this.operationId) this.state = STATES.IDLE
+      throw error
     }
     if (operationId !== this.operationId) throw new Error('采集启动已取消')
-    await new Promise((resolve, reject) => wx.authorize({ scope: 'scope.record', success: resolve, fail: reject }))
-    if (operationId !== this.operationId) throw new Error('采集启动已取消')
-    // Do not call getAvailableAudioSources here or poll it while recording.
-    // On some iOS/WeChat combinations that native route query blocks the UI.
-    // Request headsetMic directly and rely on recorder errors, pause and audio
-    // interruption callbacks to report an unavailable or disconnected route.
     this.state = STATES.CHECKING
     try {
       this.recorder.start({
         duration: 30000, sampleRate: this.sampleRate, numberOfChannels: 1,
         encodeBitRate: 96000, format: 'PCM', frameSize: 4,
-        audioSource: requestedAudioSource(mode, platform)
+        audioSource: requestedAudioSource(platform)
       })
       this.recorderActive = true
     } catch (error) {
@@ -162,7 +149,7 @@ class CaptureService {
       this.recorder.stop()
       throw new Error('采集启动已取消')
     }
-    this.startedAt = Date.now(); this.earSide = earSide; this.state = STATES.ANALYSING
+    this.startedAt = Date.now(); this.state = STATES.ANALYSING
     this.segmentTimer = setTimeout(() => this.stop(recording ? 'recording-max' : 'analysis-segment'), 30000)
     this.callbacks.state && this.callbacks.state(this.state, { recording })
   }
